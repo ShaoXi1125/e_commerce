@@ -58,8 +58,8 @@ try{
         $stmt->execute();
         $result = $stmt->get_result();
 
-        if($result->numrows === 1){
-            $user = result->fetch_assoc();
+        if($result->num_rows === 1){
+            $user = $result->fetch_assoc();
 
             if(password_verify($password,$user['password'])){
                 $_SESSION['user_id'] = $user['id'];
@@ -90,7 +90,7 @@ try{
  
                 switch($user['role']){
                     case 'admin':
-                        header("Location: admin_dashboard.php");
+                        header("Location: admin/admin_dashboard.php");
                         exit();
                     default:
                         header("Location: index.php");
@@ -150,7 +150,7 @@ try{
                 <button type="submit" class="btn btn-primary w-100">Login</button>
             </form>
             <p style="text-align:center; margin-top:10px;">Don't have an account? <a href="register.php">Register here</a></p>
-            <p style="text-align:center; margin-top:10px;"><a href="#forget_pass">Forget Password</a></p>
+            <p style="text-align:center; margin-top:10px;"><a href="forgot_password.php">Forgot Password</a></p>
         </div>
     </div>
 </body>
