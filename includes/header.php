@@ -31,7 +31,8 @@
           </ul>
         </div>
       <?php else: ?>
-        <a class="ms-2" href="login.php">Login</a> /
+        <a class="ms-2" href="login.php">Login</a>
+        |
         <a href="register.php">Register</a>
       <?php endif; ?>
 
@@ -48,8 +49,8 @@
 
     <!-- Logo -->
     <div class="logo">
-      <a href="index.php">
-        <img src="https://upload.wikimedia.org/wikipedia/commons/1/1f/Shopee_logo.svg">
+      <a href="index.php" class="text-dark text-decoration-none">
+          <i class="bi bi-shop fs-1"></i>
       </a>
     </div>
 

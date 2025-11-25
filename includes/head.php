@@ -11,13 +11,15 @@ if (session_status() === PHP_SESSION_NONE) {
   <title>My Shop</title>
 
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+
   <link rel="stylesheet" href="css/style.css">
 
   <style>
     /* Top bar */
     .top-bar {
-      background-color: #2c2c2c;
-      color: #fff;
+      background-color: #000000ff;
+      color: #000000ff;
       font-size: 0.9rem;
       padding: 4px 0;
       position: relative;
@@ -74,8 +76,16 @@ if (session_status() === PHP_SESSION_NONE) {
       font-size: 0.7rem;
     }
 
-    .dropdown-menu {
-      z-index: 2000;
+   .dropdown-menu {
+      background: #fff !important;
+      color: #000 !important;
+    }
+
+    .dropdown-item {
+        color: #000 !important;
+    }
+    .dropdown-item:hover {
+        background: #f2f2f2 !important;
     }
 
     /* Mobile adjustments */

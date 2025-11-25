@@ -1,6 +1,5 @@
 <?php
-
-session_start();
+include_once '../config/db.php';
 
 
 if(!isset($_SESSION['role']) || $_SESSION['role'] !== 'admin') {
