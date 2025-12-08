@@ -5,7 +5,7 @@ include_once '../config/db.php';
 include_once 'admin_header.php';
 include_once 'admin_auth.php';
 
-$sql = "SELECT * FROM products";
+$sql = "SELECT products.*, categories.name AS category_name FROM products INNER JOIN categories ON products.category_id = categories.id";
 $result = $conn->query($sql);
 
 
@@ -22,7 +22,39 @@ $result = $conn->query($sql);
         </div>
     </div>
 
-<?php
+    <div>
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>Image</th>
+                    <th>Product Name</th>
+                    <th>Category</th>
+                    <th>Description</th>
+                    <th>Price</th>
+                    <th>Stock</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php while($row = $result->fetch_assoc()): ?>
+                    <tr>
+                        <td><img src="../<?= $row['image_URL'] ?>" alt="<?= $row['name'] ?>" style="width: 50px; height: 50px;"></td>
+                        <td><?= $row["name"]; ?></td>
+                        <td><?= $row["category_name"]; ?></td>
+                        <td><?= $row["description"]; ?></td>
+                        <td>$<?= number_format($row["price"], 2); ?></td>
+                        <td><?= $row["stock"]; ?></td>
+                        <td colspan= 2>
+                            <a href="edit_product.php?id=<?= $row['id']; ?>" class="btn btn-secondary">Edit</a>
+                            <a href="delete_product.php?id=<?= $row['id']; ?>" class="btn btn-danger" onclick="return confirm('Are you sure you want to delete this product?');">Delete</a>
+                        </td>
+                    </tr>
+                <?php endwhile; ?>
+            </tbody>
+        </table>
+    </div>
+
+<!-- <?php
 if ($result->num_rows > 0) {
     while($row = $result->fetch_assoc()) {
 
@@ -31,7 +63,7 @@ if ($result->num_rows > 0) {
 } else {
     echo "No products found.";
 }
-?>
+?> -->
 
     <?php if(!empty($error)): ?>
         <div class="alert alert-danger"><?php echo $error; ?></div>
