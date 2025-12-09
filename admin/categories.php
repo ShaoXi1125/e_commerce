@@ -36,7 +36,5 @@ $result = $conn->query($sql);
                 <?php endwhile; ?>
             </tbody>
         </table>
-
-
     </div>
 </div>

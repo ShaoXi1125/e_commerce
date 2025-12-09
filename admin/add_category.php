@@ -34,6 +34,9 @@ if($_SERVER['REQUEST_METHOD'] == 'POST') {
             <div class="form-group">
                 <label for="category_name">Category Name:</label>
                 <input type="text" id="category_name" name="category_name" class="form-control" required>
+            </div>
+            <br>
+            <div>
                 <button type="submit" class="btn btn-primary">Add Category</button>
                 <button type="button" class="btn btn-secondary" onclick="window.location.href='categories.php'">Cancel</button>
             </div>

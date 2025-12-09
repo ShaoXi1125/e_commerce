@@ -20,7 +20,7 @@ if($_SERVER['REQUEST_METHOD']=="POST"){
 
     if(!empty($_FILES['image']['name'])){
         $filename = time() . '_' . basename($_FILES['image']['name']);
-        $target_dir = "../uploads/products". $filename;
+        $target_dir = "../uploads/products/". $filename;
 
         if(move_uploaded_file($_FILES['image']['tmp_name'], $target_dir)){
             $image_path = 'uploads/products/' . $filename;
