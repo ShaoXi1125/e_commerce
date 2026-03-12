@@ -27,4 +27,10 @@ function getPDOConnection(): PDO
 
 $pdo = getPDOConnection();
 
+$protocal = (!empty($_SERVER['HTTPS']) 
+            && $_SERVER['HTTPS'] !=='off' ) ? 'https://' : 'http://';
+
+$domain = $_SERVER['HTTP_HOST'];
+
+$base_url = $protocal . $domain;
 ?>
