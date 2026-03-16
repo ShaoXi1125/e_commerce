@@ -27,7 +27,7 @@ if($_SERVER['REQUEST_METHOD'] == 'POST') {
             $_SESSION['role'] = $user['RoleName'];
             
             echo json_encode(["message" => "Login Success....."]);
-            // header("Location: member_dashboard.php");
+            header("Location: index.php");
         } else {
             http_response_code(401);
             echo json_encode(["message" => "Invalid email or password."]);
