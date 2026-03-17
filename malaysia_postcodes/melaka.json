@@ -1,0 +1,83 @@
+{
+  "name": "Melaka",
+  "city": [
+    {
+      "name": "Alor Gajah",
+      "postcode": ["78000", "78009"]
+    },
+    {
+      "name": "Asahan",
+      "postcode": ["77100", "77109"]
+    },
+    {
+      "name": "Ayer Keroh",
+      "postcode": ["75450"]
+    },
+    {
+      "name": "Bemban",
+      "postcode": ["77200"]
+    },
+    {
+      "name": "Durian Tunggal",
+      "postcode": ["76100", "76109"]
+    },
+    {
+      "name": "Jasin",
+      "postcode": ["77000", "77007", "77008", "77009"]
+    },
+    {
+      "name": "Kem Trendak",
+      "postcode": ["76200"]
+    },
+    {
+      "name": "Kuala Sungai Baru",
+      "postcode": ["78200"]
+    },
+    {
+      "name": "Lubok China",
+      "postcode": ["78100"]
+    },
+    {
+      "name": "Masjid Tanah",
+      "postcode": ["78300", "78307", "78309"]
+    },
+    {
+      "name": "Melaka",
+      "postcode": [
+        "75000",
+        "75050",
+        "75100",
+        "75150",
+        "75200",
+        "75250",
+        "75260",
+        "75300",
+        "75350",
+        "75400",
+        "75430",
+        "75460",
+        "76450"
+      ]
+    },
+    {
+      "name": "Merlimau",
+      "postcode": ["77300"]
+    },
+    {
+      "name": "Selandar",
+      "postcode": ["77500"]
+    },
+    {
+      "name": "Sungai Rambai",
+      "postcode": ["77400"]
+    },
+    {
+      "name": "Sungai Udang",
+      "postcode": ["76300"]
+    },
+    {
+      "name": "Tanjong Kling",
+      "postcode": ["76400", "76409"]
+    }
+  ]
+}
