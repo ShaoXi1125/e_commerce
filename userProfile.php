@@ -92,15 +92,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $state         = trim($_POST['states']         ?? '');
         $city          = trim($_POST['cities']         ?? '');
         $postcode      = trim($_POST['postcodes']      ?? '');
-        $fullAddress   = trim($_POST['full_address']   ?? '');
         $isDefault     = isset($_POST['is_default']) ? 1 : 0;
 
-        if ($fullAddress === '') {
-            $addressParts = array_filter([$addressLine1, $addressLine2, $city, $state, $postcode]);
-            $fullAddress = implode(', ', $addressParts);
-        }
-
-        if (!$recipientName || !$phone || !$fullAddress) {
+        if (!$recipientName || !$phone || !$addressLine1 || !$city || !$state || !$postcode) {
             echo json_encode(['error' => 'All address fields are required.']);
             exit();
         }
@@ -110,8 +104,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $pdo->prepare("UPDATE Addresses SET IsDefault = 0 WHERE UserId = ?")->execute([$userId]);
             }
             $addressId = vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex(random_bytes(16)), 4));
-            $pdo->prepare("INSERT INTO Addresses (AddressId, UserId, RecipientName, PhoneNumber, FullAddress, IsDefault) VALUES (?,?,?,?,?,?)")
-                ->execute([$addressId, $userId, $recipientName, $phone, $fullAddress, $isDefault]);
+            $pdo->prepare("INSERT INTO Addresses (AddressId, UserId, RecipientName, PhoneNumber, AddressLine1, AddressLine2, States, City, Postcode, IsDefault) VALUES (?,?,?,?,?,?,?,?,?,?)")
+                ->execute([$addressId, $userId, $recipientName, $phone, $addressLine1, $addressLine2, $state, $city, $postcode, $isDefault]);
             $pdo->commit();
             echo json_encode(['message' => 'Address added successfully.']);
         } catch (Exception $e) {
@@ -174,6 +168,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             echo json_encode(['message' => 'Address deleted.']);
         } catch (Exception $e) {
             echo json_encode(['error' => 'Failed to delete address.']);
+        }
+        exit();
+    }
+
+    // 6. Update Address
+    if ($action === 'update_address') {
+        $addressId     = trim($_POST['address_id']      ?? '');
+        $recipientName = trim($_POST['recipient_name']  ?? '');
+        $phone         = trim($_POST['phone']           ?? '');
+        $addressLine1  = trim($_POST['address_line1']   ?? '');
+        $addressLine2  = trim($_POST['address_line2']   ?? '');
+        $state         = trim($_POST['states']          ?? '');
+        $city          = trim($_POST['cities']          ?? '');
+        $postcode      = trim($_POST['postcodes']       ?? '');
+        $isDefault     = isset($_POST['is_default']) ? 1 : 0;
+
+        if (!$addressId || !$recipientName || !$phone || !$addressLine1 || !$city || !$state || !$postcode) {
+            echo json_encode(['error' => 'All address fields are required.']);
+            exit();
+        }
+
+        try {
+            $checkStmt = $pdo->prepare("SELECT AddressId FROM Addresses WHERE AddressId = ? AND UserId = ? LIMIT 1");
+            $checkStmt->execute([$addressId, $userId]);
+            if (!$checkStmt->fetch()) {
+                echo json_encode(['error' => 'Address not found.']);
+                exit();
+            }
+
+            $pdo->beginTransaction();
+            if ($isDefault) {
+                $pdo->prepare("UPDATE Addresses SET IsDefault = 0 WHERE UserId = ?")->execute([$userId]);
+            }
+
+            $pdo->prepare("UPDATE Addresses SET RecipientName = ?, PhoneNumber = ?, AddressLine1 = ?, AddressLine2 = ?, States = ?, City = ?, Postcode = ?, IsDefault = ? WHERE AddressId = ? AND UserId = ?")
+                ->execute([$recipientName, $phone, $addressLine1, $addressLine2, $state, $city, $postcode, $isDefault, $addressId, $userId]);
+
+            $pdo->commit();
+            echo json_encode(['message' => 'Address updated successfully.']);
+        } catch (Exception $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            echo json_encode(['error' => 'Failed to update address.']);
         }
         exit();
     }
@@ -318,6 +356,13 @@ $avatarSrc = htmlspecialchars($profile['ProfilePhotoUrl'] ?? 'asset/image/defaul
                         <div id="addressList">
                             <?php if ($addresses): ?>
                                 <?php foreach ($addresses as $addr): ?>
+                                <?php $displayAddress = implode(', ', array_filter([
+                                    $addr['AddressLine1'] ?? '',
+                                    $addr['AddressLine2'] ?? '',
+                                    $addr['Postcode'] ?? '',
+                                    $addr['City'] ?? '',
+                                    $addr['States'] ?? ''
+                                ])); ?>
                                 <div class="border rounded p-3 mb-2">
                                     <div class="d-flex justify-content-between align-items-start gap-2">
                                         <div class="fw-semibold">
@@ -327,6 +372,19 @@ $avatarSrc = htmlspecialchars($profile['ProfilePhotoUrl'] ?? 'asset/image/defaul
                                             <?php endif; ?>
                                         </div>
                                         <div class="d-flex gap-2 flex-shrink-0">
+                                            <button type="button"
+                                                    class="btn btn-outline-secondary btn-sm editAddressBtn"
+                                                    data-address-id="<?php echo htmlspecialchars($addr['AddressId'], ENT_QUOTES); ?>"
+                                                    data-recipient-name="<?php echo htmlspecialchars($addr['RecipientName'], ENT_QUOTES); ?>"
+                                                    data-phone="<?php echo htmlspecialchars($addr['PhoneNumber'], ENT_QUOTES); ?>"
+                                                    data-address-line1="<?php echo htmlspecialchars($addr['AddressLine1'], ENT_QUOTES); ?>"
+                                                    data-address-line2="<?php echo htmlspecialchars($addr['AddressLine2'], ENT_QUOTES); ?>"
+                                                    data-states="<?php echo htmlspecialchars($addr['States'], ENT_QUOTES); ?>"
+                                                    data-city="<?php echo htmlspecialchars($addr['City'], ENT_QUOTES); ?>"
+                                                    data-postcode="<?php echo htmlspecialchars($addr['Postcode'], ENT_QUOTES); ?>"
+                                                    data-is-default="<?php echo (int)$addr['IsDefault']; ?>">
+                                                Edit
+                                            </button>
                                             <?php if (!$addr['IsDefault']): ?>
                                                 <form class="setDefaultForm m-0">
                                                     <input type="hidden" name="action" value="set_default_address">
@@ -342,7 +400,7 @@ $avatarSrc = htmlspecialchars($profile['ProfilePhotoUrl'] ?? 'asset/image/defaul
                                         </div>
                                     </div>
                                     <div class="text-muted small"><?php echo htmlspecialchars($addr['PhoneNumber']); ?></div>
-                                    <div><?php echo nl2br(htmlspecialchars($addr['FullAddress'])); ?></div>
+                                    <div><?php echo nl2br(htmlspecialchars($displayAddress)); ?></div>
                                 </div>
                                 <?php endforeach; ?>
                             <?php else: ?>
@@ -354,7 +412,6 @@ $avatarSrc = htmlspecialchars($profile['ProfilePhotoUrl'] ?? 'asset/image/defaul
                         <h6 class="mb-3">Add New Address</h6>
                         <form id="formAddress" style="max-width: 540px;">
                             <input type="hidden" name="action" value="add_address">
-                            <input type="hidden" name="full_address" id="fullAddress">
                             <div class="mb-3">
                                 <label class="form-label">Recipient Name</label>
                                 <input type="text" class="form-control" name="recipient_name" required>
@@ -406,6 +463,66 @@ $avatarSrc = htmlspecialchars($profile['ProfilePhotoUrl'] ?? 'asset/image/defaul
     </div>
 </div>
 
+<div class="modal fade" id="editAddressModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Address</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="formEditAddress">
+                <div class="modal-body">
+                    <input type="hidden" name="action" value="update_address">
+                    <input type="hidden" name="address_id" id="editAddressId">
+
+                    <div class="mb-3">
+                        <label class="form-label">Recipient Name</label>
+                        <input type="text" class="form-control" name="recipient_name" id="editRecipientName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Phone Number</label>
+                        <input type="text" class="form-control" name="phone" id="editPhone" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Address Line 1</label>
+                        <input type="text" class="form-control" name="address_line1" id="editAddressLine1" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Address Line 2</label>
+                        <input type="text" class="form-control" name="address_line2" id="editAddressLine2">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">State</label>
+                        <select class="form-control" name="states" id="editStates" disabled>
+                            <option value="">Loading states...</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">City</label>
+                        <select class="form-control" name="cities" id="editCities" disabled>
+                            <option value="">Select state first</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Postcode</label>
+                        <select class="form-control" name="postcodes" id="editPostcode" disabled>
+                            <option value="">Select city first</option>
+                        </select>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="is_default" id="editIsDefault">
+                        <label class="form-check-label" for="editIsDefault">Set as default address</label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Address</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <!-- Toast container -->
 <div class="toast-shell" id="toastShell"></div>
 
@@ -437,25 +554,36 @@ $avatarSrc = htmlspecialchars($profile['ProfilePhotoUrl'] ?? 'asset/image/defaul
         return (stateObj.city || []).find((city) => city.name === cityName) || null;
     }
 
-    function buildFullAddress() {
-        const addressLine1 = document.querySelector('[name="address_line1"]').value.trim();
-        const addressLine2 = document.querySelector('[name="address_line2"]').value.trim();
-        const city = document.getElementById('cities').value.trim();
-        const state = document.getElementById('states').value.trim();
-        const postcode = document.getElementById('postcode').value.trim();
+    function setStateCityPostcode(stateEl, cityEl, postcodeEl, stateValue, cityValue, postcodeValue) {
+        const stateObj = findStateByName(stateValue);
+        const cities = stateObj ? (stateObj.city || []).map((item) => item.name) : [];
 
-        const segments = [addressLine1, addressLine2, city, state, postcode].filter(Boolean);
-        document.getElementById('fullAddress').value = segments.join(', ');
+        setSelectOptions(cityEl, cities.length ? 'Select City' : 'No city data available', cities);
+        cityEl.disabled = cities.length === 0;
+        cityEl.value = cities.includes(cityValue) ? cityValue : '';
+
+        const cityObj = findCityByName(stateObj, cityEl.value);
+        const postcodes = cityObj ? (cityObj.postcode || []) : [];
+
+        setSelectOptions(postcodeEl, postcodes.length ? 'Select Postcode' : 'No postcode data available', postcodes);
+        postcodeEl.disabled = postcodes.length === 0;
+        postcodeEl.value = postcodes.includes(postcodeValue) ? postcodeValue : '';
     }
 
     async function loadMalaysiaPostcodes() {
         const stateEl = document.getElementById('states');
         const cityEl = document.getElementById('cities');
         const postcodeEl = document.getElementById('postcode');
+        const editStateEl = document.getElementById('editStates');
+        const editCityEl = document.getElementById('editCities');
+        const editPostcodeEl = document.getElementById('editPostcode');
 
         stateEl.disabled = true;
         cityEl.disabled = true;
         postcodeEl.disabled = true;
+        editStateEl.disabled = true;
+        editCityEl.disabled = true;
+        editPostcodeEl.disabled = true;
 
         try {
             const response = await fetch('malaysia_postcodes/all.json', { cache: 'no-store' });
@@ -470,22 +598,40 @@ $avatarSrc = htmlspecialchars($profile['ProfilePhotoUrl'] ?? 'asset/image/defaul
                 setSelectOptions(stateEl, 'No state data available', []);
                 setSelectOptions(cityEl, 'No city data available', []);
                 setSelectOptions(postcodeEl, 'No postcode data available', []);
+                setSelectOptions(editStateEl, 'No state data available', []);
+                setSelectOptions(editCityEl, 'No city data available', []);
+                setSelectOptions(editPostcodeEl, 'No postcode data available', []);
                 return;
             }
 
-            setSelectOptions(stateEl, 'Select State', postcodeDataset.map((item) => item.name));
+            const stateNames = postcodeDataset.map((item) => item.name);
+            setSelectOptions(stateEl, 'Select State', stateNames);
             setSelectOptions(cityEl, 'Select City', []);
             setSelectOptions(postcodeEl, 'Select Postcode', []);
+            setSelectOptions(editStateEl, 'Select State', stateNames);
+            setSelectOptions(editCityEl, 'Select City', []);
+            setSelectOptions(editPostcodeEl, 'Select Postcode', []);
+
             stateEl.disabled = false;
             cityEl.disabled = true;
             postcodeEl.disabled = true;
+            editStateEl.disabled = false;
+            editCityEl.disabled = true;
+            editPostcodeEl.disabled = true;
         } catch (error) {
             setSelectOptions(stateEl, 'Failed to load states', []);
             setSelectOptions(cityEl, 'No city data available', []);
             setSelectOptions(postcodeEl, 'No postcode data available', []);
+            setSelectOptions(editStateEl, 'Failed to load states', []);
+            setSelectOptions(editCityEl, 'No city data available', []);
+            setSelectOptions(editPostcodeEl, 'No postcode data available', []);
+
             stateEl.disabled = true;
             cityEl.disabled = true;
             postcodeEl.disabled = true;
+            editStateEl.disabled = true;
+            editCityEl.disabled = true;
+            editPostcodeEl.disabled = true;
             showToast('Unable to load state/city/postcode data.', 'error');
         }
     }
@@ -502,7 +648,6 @@ $avatarSrc = htmlspecialchars($profile['ProfilePhotoUrl'] ?? 'asset/image/defaul
             setSelectOptions(postcodeEl, 'Select city first', []);
             cityEl.disabled = cities.length === 0;
             postcodeEl.disabled = true;
-            buildFullAddress();
         });
 
         cityEl.addEventListener('change', function () {
@@ -511,12 +656,23 @@ $avatarSrc = htmlspecialchars($profile['ProfilePhotoUrl'] ?? 'asset/image/defaul
             const postcodes = cityObj ? (cityObj.postcode || []) : [];
             setSelectOptions(postcodeEl, postcodes.length ? 'Select Postcode' : 'No postcode data available', postcodes);
             postcodeEl.disabled = postcodes.length === 0;
-            buildFullAddress();
         });
 
-        postcodeEl.addEventListener('change', buildFullAddress);
-        document.querySelector('[name="address_line1"]').addEventListener('input', buildFullAddress);
-        document.querySelector('[name="address_line2"]').addEventListener('input', buildFullAddress);
+        const editStateEl = document.getElementById('editStates');
+        const editCityEl = document.getElementById('editCities');
+        const editPostcodeEl = document.getElementById('editPostcode');
+
+        editStateEl.addEventListener('change', function () {
+            setStateCityPostcode(editStateEl, editCityEl, editPostcodeEl, this.value, '', '');
+        });
+
+        editCityEl.addEventListener('change', function () {
+            const stateObj = findStateByName(editStateEl.value);
+            const cityObj = findCityByName(stateObj, this.value);
+            const postcodes = cityObj ? (cityObj.postcode || []) : [];
+            setSelectOptions(editPostcodeEl, postcodes.length ? 'Select Postcode' : 'No postcode data available', postcodes);
+            editPostcodeEl.disabled = postcodes.length === 0;
+        });
     }
 
     function showToast(msg, type) {
@@ -563,7 +719,6 @@ $avatarSrc = htmlspecialchars($profile['ProfilePhotoUrl'] ?? 'asset/image/defaul
     // Add Address
     document.getElementById('formAddress').addEventListener('submit', function (e) {
         e.preventDefault();
-        buildFullAddress();
         ajaxForm(this).then(res => {
             showToast(res.message || res.error, res.error ? 'error' : 'success');
             if (res.message) {
@@ -598,6 +753,45 @@ $avatarSrc = htmlspecialchars($profile['ProfilePhotoUrl'] ?? 'asset/image/defaul
                     card.remove();
                 }
             });
+        });
+    });
+
+    const editAddressModalEl = document.getElementById('editAddressModal');
+    const editAddressModal = new bootstrap.Modal(editAddressModalEl);
+
+    document.querySelectorAll('.editAddressBtn').forEach((btn) => {
+        btn.addEventListener('click', function () {
+            document.getElementById('editAddressId').value = this.dataset.addressId || '';
+            document.getElementById('editRecipientName').value = this.dataset.recipientName || '';
+            document.getElementById('editPhone').value = this.dataset.phone || '';
+            document.getElementById('editAddressLine1').value = this.dataset.addressLine1 || '';
+            document.getElementById('editAddressLine2').value = this.dataset.addressLine2 || '';
+            document.getElementById('editIsDefault').checked = this.dataset.isDefault === '1';
+
+            const editStateEl = document.getElementById('editStates');
+            const editCityEl = document.getElementById('editCities');
+            const editPostcodeEl = document.getElementById('editPostcode');
+            const targetState = this.dataset.states || '';
+            const targetCity = this.dataset.city || '';
+            const targetPostcode = this.dataset.postcode || '';
+
+            if (!editStateEl.disabled) {
+                editStateEl.value = targetState;
+                setStateCityPostcode(editStateEl, editCityEl, editPostcodeEl, targetState, targetCity, targetPostcode);
+            }
+
+            editAddressModal.show();
+        });
+    });
+
+    document.getElementById('formEditAddress').addEventListener('submit', function (e) {
+        e.preventDefault();
+        ajaxForm(this).then((res) => {
+            showToast(res.message || res.error, res.error ? 'error' : 'success');
+            if (res.message) {
+                editAddressModal.hide();
+                setTimeout(() => location.reload(), 800);
+            }
         });
     });
 
