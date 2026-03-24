@@ -83,8 +83,8 @@ if (!isset($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
 
-$uploadDirRelative = 'asset/products_images/';
-$uploadDirAbsolute = dirname(__DIR__) . '/asset/products_images/';
+$uploadDirRelative = 'uploads/products_images/';
+$uploadDirAbsolute = dirname(__DIR__) . '/uploads/products_images/';
 $allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
 $maxUploadSize = 5 * 1024 * 1024; // 5MB
 
@@ -179,8 +179,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
 
                     if (empty($errors) && $hasNewImage) {
-                        if (!is_dir($uploadDirAbsolute) && !mkdir($uploadDirAbsolute, 0755, true) && !is_dir($uploadDirAbsolute)) {
-                            $errors[] = 'Unable to create image upload directory.';
+                        if (!is_dir($uploadDirAbsolute)) {
+                            $created = @mkdir($uploadDirAbsolute, 0755, true);
+                            if (!$created && !is_dir($uploadDirAbsolute)) {
+                                $errors[] = 'Unable to create image upload directory.';
+                            }
                         }
 
                         if (empty($errors)) {
@@ -398,9 +401,10 @@ if ($editProduct) {
                                     <label class="form-label">Current Images (select Main)</label>
                                     <div class="d-flex flex-wrap gap-2">
                                         <?php foreach ($editProductImages as $existingImage): ?>
+                                            <?php $normalizedImagePath = preg_replace('#^(\.\./)+#', '', (string)$existingImage['ImageUrl']); ?>
                                             <label class="position-relative" style="width: 96px; cursor: pointer;">
                                                 <img
-                                                    src="<?php echo htmlspecialchars('../' . ltrim($existingImage['ImageUrl'], '/')); ?>"
+                                                    src="<?php echo htmlspecialchars('../' . ltrim((string)$normalizedImagePath, '/')); ?>"
                                                     alt="Current product image"
                                                     style="width: 96px; height: 96px; object-fit: cover; border-radius: 6px; border: 1px solid #dee2e6;"
                                                 >
