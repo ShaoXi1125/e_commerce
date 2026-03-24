@@ -3,6 +3,47 @@
 include_once '../config/config.php';
 include_once '../config/auth.php';
 
+function generateUuidV4(): string
+{
+    $data = random_bytes(16);
+    $data[6] = chr((ord($data[6]) & 0x0f) | 0x40);
+    $data[8] = chr((ord($data[8]) & 0x3f) | 0x80);
+    $hex = bin2hex($data);
+
+    return sprintf('%s-%s-%s-%s-%s',
+        substr($hex, 0, 8),
+        substr($hex, 8, 4),
+        substr($hex, 12, 4),
+        substr($hex, 16, 4),
+        substr($hex, 20, 12)
+    );
+}
+
+function normalizeUploadedFiles(?array $fileInput): array
+{
+    if (!$fileInput || !isset($fileInput['name'])) {
+        return [];
+    }
+
+    if (is_array($fileInput['name'])) {
+        $files = [];
+        $total = count($fileInput['name']);
+        for ($i = 0; $i < $total; $i++) {
+            $files[] = [
+                'name' => $fileInput['name'][$i] ?? '',
+                'type' => $fileInput['type'][$i] ?? '',
+                'tmp_name' => $fileInput['tmp_name'][$i] ?? '',
+                'error' => $fileInput['error'][$i] ?? UPLOAD_ERR_NO_FILE,
+                'size' => $fileInput['size'][$i] ?? 0,
+            ];
+        }
+
+        return $files;
+    }
+
+    return [$fileInput];
+}
+
 function buildProductManagementUrl(array $params = []): string
 {
     $filtered = [];
@@ -42,6 +83,11 @@ if (!isset($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
 
+$uploadDirRelative = 'asset/products_images/';
+$uploadDirAbsolute = dirname(__DIR__) . '/asset/products_images/';
+$allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+$maxUploadSize = 5 * 1024 * 1024; // 5MB
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $csrfToken = $_POST['csrf_token'] ?? '';
     if (!hash_equals($_SESSION['csrf_token'], $csrfToken)) {
@@ -54,6 +100,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $description = trim($_POST['description'] ?? '');
             $priceInput = trim($_POST['price'] ?? '');
             $stockInput = trim($_POST['stock_quantity'] ?? '');
+            $selectedPrimaryImageId = trim($_POST['primary_image_id'] ?? '');
 
             if ($productName === '') {
                 $errors[] = 'Product name is required.';
@@ -70,12 +117,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (empty($errors)) {
                 $price = number_format((float)$priceInput, 2, '.', '');
                 $stockQuantity = (int)$stockInput;
+                $uploadedFiles = normalizeUploadedFiles($_FILES['ProductImage'] ?? null);
+                $hasNewImage = false;
+                foreach ($uploadedFiles as $uploadedFile) {
+                    if (($uploadedFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+                        $hasNewImage = true;
+                        break;
+                    }
+                }
 
                 try {
+
+                    $pdo->beginTransaction(); //Start transaction to ensure data integrity
+                    $currentProductId = '';
+
                     if ($action === 'add') {
-                        $insertSQL = "INSERT INTO Products (ProductId, ProductName, Description, Price, StockQuantity) VALUES (UUID(), :name, :description, :price, :stock)";
+                        $currentProductId = generateUuidV4();
+                        $insertSQL = "INSERT INTO Products (ProductId, ProductName, Description, Price, StockQuantity) VALUES (:product_id, :name, :description, :price, :stock)";
                         $insertStmt = $pdo->prepare($insertSQL);
                         $insertStmt->execute([
+                            ':product_id' => $currentProductId,
                             ':name' => $productName,
                             ':description' => $description,
                             ':price' => $price,
@@ -89,6 +150,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if ($productId === '') {
                             $errors[] = 'Missing product ID for update.';
                         } else {
+                            $currentProductId = $productId;
                             $updateSQL = "UPDATE Products SET ProductName = :name, Description = :description, Price = :price, StockQuantity = :stock WHERE ProductId = :product_id";
                             $updateStmt = $pdo->prepare($updateSQL);
                             $updateStmt->execute([
@@ -98,10 +160,102 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 ':stock' => $stockQuantity,
                                 ':product_id' => $productId,
                             ]);
+
+                            if ($selectedPrimaryImageId !== '') {
+                                $clearPrimarySql = "UPDATE ProductImages SET IsPrimary = 0 WHERE ProductId = :product_id";
+                                $clearPrimaryStmt = $pdo->prepare($clearPrimarySql);
+                                $clearPrimaryStmt->execute([':product_id' => $productId]);
+
+                                $setPrimarySql = "UPDATE ProductImages SET IsPrimary = 1 WHERE ImageId = :image_id AND ProductId = :product_id";
+                                $setPrimaryStmt = $pdo->prepare($setPrimarySql);
+                                $setPrimaryStmt->execute([
+                                    ':image_id' => $selectedPrimaryImageId,
+                                    ':product_id' => $productId,
+                                ]);
+                            }
+
                             $successMessage = 'Product updated successfully.';
                         }
                     }
+
+                    if (empty($errors) && $hasNewImage) {
+                        if (!is_dir($uploadDirAbsolute) && !mkdir($uploadDirAbsolute, 0755, true) && !is_dir($uploadDirAbsolute)) {
+                            $errors[] = 'Unable to create image upload directory.';
+                        }
+
+                        if (empty($errors)) {
+                            foreach ($uploadedFiles as $uploadedFile) {
+                                $errorCode = $uploadedFile['error'] ?? UPLOAD_ERR_NO_FILE;
+                                if ($errorCode === UPLOAD_ERR_NO_FILE) {
+                                    continue;
+                                }
+
+                                if ($errorCode !== UPLOAD_ERR_OK) {
+                                    $errors[] = 'One of the selected images failed to upload.';
+                                    continue;
+                                }
+
+                                $originalName = (string)($uploadedFile['name'] ?? '');
+                                $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+
+                                if (!in_array($extension, $allowedExtensions, true)) {
+                                    $errors[] = 'Only JPG, PNG, GIF, or WEBP images are allowed.';
+                                    continue;
+                                }
+
+                                $fileSize = (int)($uploadedFile['size'] ?? 0);
+                                if ($fileSize <= 0 || $fileSize > $maxUploadSize) {
+                                    $errors[] = 'Each image must be smaller than 5MB.';
+                                    continue;
+                                }
+
+                                $tmpName = (string)($uploadedFile['tmp_name'] ?? '');
+                                $imageInfo = @getimagesize($tmpName);
+                                if ($imageInfo === false) {
+                                    $errors[] = 'Invalid image file detected.';
+                                    continue;
+                                }
+
+                                $newFileName = generateUuidV4() . '.' . $extension;
+                                $targetPath = $uploadDirAbsolute . $newFileName;
+
+                                if (!move_uploaded_file($tmpName, $targetPath)) {
+                                    $errors[] = 'Error uploading one of the selected images.';
+                                    continue;
+                                }
+
+                                $imgSQL = "INSERT INTO ProductImages (ImageId, ProductId, ImageUrl) VALUES (:image_id, :product_id, :image_url)";
+                                $imgStmt = $pdo->prepare($imgSQL);
+                                $newImageId = generateUuidV4();
+                                $imgStmt->execute([
+                                    ':image_id' => $newImageId,
+                                    ':product_id' => $currentProductId,
+                                    ':image_url' => $uploadDirRelative . $newFileName,
+                                ]);
+
+                                // If user did not select a main image, keep one deterministic main image.
+                                if ($selectedPrimaryImageId === '') {
+                                    $setAnyPrimarySql = "UPDATE ProductImages SET IsPrimary = CASE WHEN ImageId = :image_id THEN 1 ELSE 0 END WHERE ProductId = :product_id";
+                                    $setAnyPrimaryStmt = $pdo->prepare($setAnyPrimarySql);
+                                    $setAnyPrimaryStmt->execute([
+                                        ':image_id' => $newImageId,
+                                        ':product_id' => $currentProductId,
+                                    ]);
+                                    $selectedPrimaryImageId = $newImageId;
+                                }
+                            }
+                        }
+                    }
+
+                    if (!empty($errors)) {
+                        $pdo->rollBack();
+                    } else {
+                        $pdo->commit();
+                    }
                 } catch (Exception $e) {
+                    if ($pdo->inTransaction()) {
+                        $pdo->rollBack();
+                    }
                     $errors[] = 'Database error: ' . $e->getMessage();
                 }
             }
@@ -168,6 +322,14 @@ $productStmt->bindValue(':limit', $perPage, PDO::PARAM_INT);
 $productStmt->bindValue(':offset', $offset, PDO::PARAM_INT);
 $productStmt->execute();
 $products = $productStmt->fetchAll(PDO::FETCH_ASSOC);
+$editProductImages = [];
+
+if ($editProduct) {
+    $imageSQL = "SELECT ImageId, ImageUrl, IsPrimary FROM ProductImages WHERE ProductId = :product_id ORDER BY IsPrimary DESC, ImageId ASC";
+    $imageStmt = $pdo->prepare($imageSQL);
+    $imageStmt->execute([':product_id' => $editProduct['ProductId']]);
+    $editProductImages = $imageStmt->fetchAll(PDO::FETCH_ASSOC);
+}
 
 
 ?>
@@ -207,11 +369,54 @@ $products = $productStmt->fetchAll(PDO::FETCH_ASSOC);
                         <h5 class="mb-0"><?php echo $editProduct ? 'Edit Product' : 'Add New Product'; ?></h5>
                     </div>
                     <div class="card-body">
-                        <form method="post" action="<?php echo htmlspecialchars(buildProductManagementUrl(array_merge($stateParams, $editProduct ? ['edit' => $editProduct['ProductId']] : []))); ?>">
+                        <form method="post" action="<?php echo htmlspecialchars(buildProductManagementUrl(array_merge($stateParams, $editProduct ? ['edit' => $editProduct['ProductId']] : []))); ?>" enctype="multipart/form-data">
                             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                             <input type="hidden" name="action" value="<?php echo $editProduct ? 'update' : 'add'; ?>">
                             <?php if ($editProduct): ?>
                                 <input type="hidden" name="product_id" value="<?php echo htmlspecialchars($editProduct['ProductId']); ?>">
+                            <?php endif; ?>
+                            <div class="mb-3">
+                                <label class="form-label" for="image">Upload Images</label>
+                                <div class="d-flex flex-wrap gap-3 align-items-start">
+                                    <div id="imagePreview" class="d-flex flex-wrap gap-2"></div>
+
+                                    <label
+                                        for="image"
+                                        class="d-flex align-items-center justify-content-center border border-2 border-secondary-subtle rounded"
+                                        style="width: 96px; height: 96px; cursor: pointer; border-style: dashed !important;"
+                                        title="Add images"
+                                    >
+                                        <span style="font-size: 2rem; line-height: 1;">+</span>
+                                    </label>
+                                    <input type="file" class="d-none" id="image" name="ProductImage[]" accept="image/*" multiple>
+                                </div>
+                                <small class="text-muted d-block mt-2">You can select multiple images. Max 5MB each.</small>
+                            </div>
+
+                            <?php if (!empty($editProductImages)): ?>
+                                <div class="mb-3">
+                                    <label class="form-label">Current Images (select Main)</label>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        <?php foreach ($editProductImages as $existingImage): ?>
+                                            <label class="position-relative" style="width: 96px; cursor: pointer;">
+                                                <img
+                                                    src="<?php echo htmlspecialchars('../' . ltrim($existingImage['ImageUrl'], '/')); ?>"
+                                                    alt="Current product image"
+                                                    style="width: 96px; height: 96px; object-fit: cover; border-radius: 6px; border: 1px solid #dee2e6;"
+                                                >
+                                                <span class="d-flex align-items-center gap-1 mt-1" style="font-size: 12px;">
+                                                    <input
+                                                        type="radio"
+                                                        name="primary_image_id"
+                                                        value="<?php echo htmlspecialchars($existingImage['ImageId']); ?>"
+                                                        <?php echo (int)$existingImage['IsPrimary'] === 1 ? 'checked' : ''; ?>
+                                                    >
+                                                    Main
+                                                </span>
+                                            </label>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </div>
                             <?php endif; ?>
 
                             <div class="row g-3">
@@ -357,6 +562,8 @@ $products = $productStmt->fetchAll(PDO::FETCH_ASSOC);
             const form = document.getElementById('productSearchForm');
             const searchInput = document.getElementById('search');
             const perPageSelect = document.getElementById('per_page');
+            const imageInput = document.getElementById('image');
+            const imagePreview = document.getElementById('imagePreview');
 
             if (!form || !searchInput || !perPageSelect) {
                 return;
@@ -374,6 +581,100 @@ $products = $productStmt->fetchAll(PDO::FETCH_ASSOC);
             perPageSelect.addEventListener('change', function () {
                 form.submit();
             });
+
+            if (imageInput && imagePreview) {
+                let selectedFiles = [];
+
+                function syncInputFiles() {
+                    const dataTransfer = new DataTransfer();
+                    selectedFiles.forEach(function (file) {
+                        dataTransfer.items.add(file);
+                    });
+                    imageInput.files = dataTransfer.files;
+                }
+
+                function renderImagePreview() {
+                    imagePreview.innerHTML = '';
+
+                    if (selectedFiles.length === 0) {
+                        const emptyState = document.createElement('small');
+                        emptyState.className = 'text-muted';
+                        emptyState.textContent = 'No new image selected.';
+                        imagePreview.appendChild(emptyState);
+                        return;
+                    }
+
+                    selectedFiles.forEach(function (file, index) {
+                        const imageCard = document.createElement('div');
+                        imageCard.className = 'position-relative';
+                        imageCard.style.width = '96px';
+                        imageCard.style.height = '96px';
+
+                        const image = document.createElement('img');
+                        image.alt = 'preview';
+                        image.style.width = '100%';
+                        image.style.height = '100%';
+                        image.style.objectFit = 'cover';
+                        image.style.borderRadius = '8px';
+                        image.style.border = '1px solid #dee2e6';
+
+                        const objectUrl = URL.createObjectURL(file);
+                        image.src = objectUrl;
+                        image.onload = function () {
+                            URL.revokeObjectURL(objectUrl);
+                        };
+
+                        const removeButton = document.createElement('button');
+                        removeButton.type = 'button';
+                        removeButton.className = 'btn btn-sm btn-danger position-absolute';
+                        removeButton.style.top = '-8px';
+                        removeButton.style.right = '-8px';
+                        removeButton.style.borderRadius = '999px';
+                        removeButton.style.width = '24px';
+                        removeButton.style.height = '24px';
+                        removeButton.style.display = 'flex';
+                        removeButton.style.alignItems = 'center';
+                        removeButton.style.justifyContent = 'center';
+                        removeButton.style.padding = '0';
+                        removeButton.textContent = 'x';
+                        removeButton.addEventListener('click', function () {
+                            selectedFiles.splice(index, 1);
+                            syncInputFiles();
+                            renderImagePreview();
+                        });
+
+                        imageCard.appendChild(image);
+                        imageCard.appendChild(removeButton);
+                        imagePreview.appendChild(imageCard);
+                    });
+                }
+
+                imageInput.addEventListener('change', function () {
+                    const pickedFiles = Array.from(imageInput.files || []);
+                    imageInput.value = '';
+
+                    pickedFiles.forEach(function (file) {
+                        if (!file.type.startsWith('image/')) {
+                            return;
+                        }
+
+                        const alreadyAdded = selectedFiles.some(function (existingFile) {
+                            return existingFile.name === file.name
+                                && existingFile.size === file.size
+                                && existingFile.lastModified === file.lastModified;
+                        });
+
+                        if (!alreadyAdded) {
+                            selectedFiles.push(file);
+                        }
+                    });
+
+                    syncInputFiles();
+                    renderImagePreview();
+                });
+
+                renderImagePreview();
+            }
         })();
     </script>
 </body>

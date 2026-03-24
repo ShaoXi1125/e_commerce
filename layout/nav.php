@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../config/config.php';
 
 $searchQuery = isset($_GET['q']) ? trim((string) $_GET['q']) : '';
+$cartItemCount = 0;
 
 if(isset($_SESSION['user_id'])){
     $sql = "SELECT u.UserId,up.FirstName, up.ProfilePhotoUrl 
@@ -15,6 +16,12 @@ if(isset($_SESSION['user_id'])){
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
     $userAvatar = ($user && !empty($user['ProfilePhotoUrl'])) ? $user['ProfilePhotoUrl'] : 'asset/image/default_avatar.png';
     $userFirstName = $user ? $user['FirstName'] : 'Member';
+
+    $cartCountSql = "SELECT COALESCE(SUM(Quantity), 0) AS total_items FROM Carts WHERE UserId = :user_id";
+    $cartCountStmt = $pdo->prepare($cartCountSql);
+    $cartCountStmt->execute([':user_id' => $_SESSION['user_id']]);
+    $cartCountData = $cartCountStmt->fetch(PDO::FETCH_ASSOC);
+    $cartItemCount = $cartCountData ? (int)$cartCountData['total_items'] : 0;
 }
 
 
@@ -163,6 +170,47 @@ if(isset($_SESSION['user_id'])){
         filter: brightness(0.98);
     }
 
+    .nav-cart-link {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        border: 1px solid #d6ebe3;
+        background: #fff;
+        color: #1f3f35;
+        box-shadow: 0 6px 14px rgba(9, 62, 48, 0.07);
+        margin-right: 0.55rem;
+        transition: transform 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    }
+
+    .nav-cart-link:hover {
+        color: var(--nav-accent-strong);
+        border-color: #b8dfd1;
+        transform: translateY(-1px);
+    }
+
+    .nav-cart-badge {
+        position: absolute;
+        top: -6px;
+        right: -6px;
+        min-width: 20px;
+        height: 20px;
+        border-radius: 999px;
+        padding: 0 6px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        font-weight: 700;
+        color: #fff;
+        background: #dc3545;
+        border: 2px solid #fff;
+        line-height: 1;
+    }
+
     .dropdown-menu {
         border: 1px solid #e5f1ed;
         border-radius: 14px;
@@ -245,6 +293,14 @@ if(isset($_SESSION['user_id'])){
 
             <ul class="navbar-nav ms-lg-auto mb-2 mb-lg-0 align-items-lg-center">
                 <?php if(isset($_SESSION['user_id'])): ?>
+                    <li class="nav-item">
+                        <a class="nav-link nav-cart-link" href="index.php#cart-summary" aria-label="View cart">
+                            <i class="fa-solid fa-cart-shopping"></i>
+                            <?php if ($cartItemCount > 0): ?>
+                                <span class="nav-cart-badge"><?php echo $cartItemCount > 99 ? '99+' : $cartItemCount; ?></span>
+                            <?php endif; ?>
+                        </a>
+                    </li>
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle d-flex align-items-center nav-account-trigger" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <img src="<?php echo htmlspecialchars($userAvatar, ENT_QUOTES, 'UTF-8'); ?>" class="nav-avatar me-2" alt="User Avatar">

@@ -1,4 +1,111 @@
-<?php require_once 'config/config.php'; ?>
+<?php
+require_once 'config/config.php';
+
+if (!isset($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+$alerts = [];
+$searchQuery = trim($_GET['q'] ?? '');
+$userId = $_SESSION['user_id'] ?? null;
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = $_POST['action'] ?? '';
+    $csrfToken = $_POST['csrf_token'] ?? '';
+
+    if (!hash_equals($_SESSION['csrf_token'], $csrfToken)) {
+        $alerts[] = ['type' => 'danger', 'text' => 'Invalid request. Please refresh and try again.'];
+    } elseif ($action === 'add_to_cart') {
+        if ($userId === null) {
+            $alerts[] = ['type' => 'warning', 'text' => 'Please login to add items to cart.'];
+        } else {
+            $productId = $_POST['product_id'] ?? '';
+            $quantityInput = (int)($_POST['quantity'] ?? 1);
+            $quantity = max(1, $quantityInput);
+
+            try {
+                $productStmt = $pdo->prepare("SELECT ProductId, ProductName, StockQuantity FROM Products WHERE ProductId = :product_id LIMIT 1");
+                $productStmt->execute([':product_id' => $productId]);
+                $product = $productStmt->fetch(PDO::FETCH_ASSOC);
+
+                if (!$product) {
+                    $alerts[] = ['type' => 'danger', 'text' => 'Product not found.'];
+                } elseif ((int)$product['StockQuantity'] <= 0) {
+                    $alerts[] = ['type' => 'warning', 'text' => 'This product is out of stock.'];
+                } else {
+                    $cartCheckStmt = $pdo->prepare("SELECT CartId, Quantity FROM Carts WHERE UserId = :user_id AND ProductId = :product_id LIMIT 1");
+                    $cartCheckStmt->execute([
+                        ':user_id' => $userId,
+                        ':product_id' => $productId,
+                    ]);
+                    $existing = $cartCheckStmt->fetch(PDO::FETCH_ASSOC);
+
+                    $currentQty = $existing ? (int)$existing['Quantity'] : 0;
+                    $newQty = $currentQty + $quantity;
+                    $stockQty = (int)$product['StockQuantity'];
+
+                    if ($newQty > $stockQty) {
+                        $alerts[] = ['type' => 'warning', 'text' => 'Not enough stock. Available quantity: ' . $stockQty . '.'];
+                    } else {
+                        if ($existing) {
+                            $updateCartStmt = $pdo->prepare("UPDATE Carts SET Quantity = :quantity WHERE CartId = :cart_id");
+                            $updateCartStmt->execute([
+                                ':quantity' => $newQty,
+                                ':cart_id' => $existing['CartId'],
+                            ]);
+                        } else {
+                            $insertCartStmt = $pdo->prepare("INSERT INTO Carts (CartId, UserId, ProductId, Quantity) VALUES (UUID(), :user_id, :product_id, :quantity)");
+                            $insertCartStmt->execute([
+                                ':user_id' => $userId,
+                                ':product_id' => $productId,
+                                ':quantity' => $quantity,
+                            ]);
+                        }
+
+                        $alerts[] = ['type' => 'success', 'text' => $product['ProductName'] . ' added to cart.'];
+                    }
+                }
+            } catch (Exception $e) {
+                $alerts[] = ['type' => 'danger', 'text' => 'Failed to update cart: ' . $e->getMessage()];
+            }
+        }
+    }
+}
+
+$productSQL = "SELECT ProductId, ProductName, Description, Price, StockQuantity FROM Products";
+$productParams = [];
+
+if ($searchQuery !== '') {
+    $productSQL .= " WHERE ProductName LIKE :q_name OR Description LIKE :q_desc";
+    $keyword = '%' . $searchQuery . '%';
+    $productParams[':q_name'] = $keyword;
+    $productParams[':q_desc'] = $keyword;
+}
+
+$productSQL .= " ORDER BY CreateDate DESC LIMIT 18";
+$productStmt = $pdo->prepare($productSQL);
+foreach ($productParams as $key => $value) {
+    $productStmt->bindValue($key, $value, PDO::PARAM_STR);
+}
+$productStmt->execute();
+$products = $productStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$cartSummary = ['items' => 0, 'total' => 0.00];
+if ($userId !== null) {
+    $cartSummaryStmt = $pdo->prepare("SELECT COALESCE(SUM(c.Quantity), 0) AS total_items,
+                                             COALESCE(SUM(c.Quantity * p.Price), 0) AS total_amount
+                                      FROM Carts c
+                                      JOIN Products p ON c.ProductId = p.ProductId
+                                      WHERE c.UserId = :user_id");
+    $cartSummaryStmt->execute([':user_id' => $userId]);
+    $cartData = $cartSummaryStmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($cartData) {
+        $cartSummary['items'] = (int)$cartData['total_items'];
+        $cartSummary['total'] = (float)$cartData['total_amount'];
+    }
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -223,6 +330,61 @@
         footer a:hover { color: #fff; }
         .footer-brand { font-family: 'Space Grotesk',sans-serif; font-weight: 700; font-size: 1.2rem; color: #fff; }
         .footer-divider { border-color: rgba(255,255,255,.1); }
+
+        /* -- Cart + products -- */
+        .cart-summary-card {
+            border: 1px solid #dceee6;
+            border-radius: 18px;
+            background: linear-gradient(140deg, #ffffff 0%, #f5fbf8 100%);
+            box-shadow: 0 12px 28px rgba(10, 36, 60, 0.06);
+        }
+        .cart-summary-num {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: #0f8f6f;
+            line-height: 1;
+        }
+        .product-card {
+            border: 1px solid #e2ede9;
+            border-radius: 18px;
+            background: #fff;
+            overflow: hidden;
+            box-shadow: 0 8px 20px rgba(10, 36, 60, 0.06);
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        .product-card-top {
+            background: linear-gradient(135deg, #eef8f4, #e8f3ff);
+            min-height: 120px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.2rem;
+        }
+        .product-card .card-body {
+            display: flex;
+            flex-direction: column;
+        }
+        .product-name {
+            font-weight: 700;
+            margin-bottom: 6px;
+            font-size: 1.02rem;
+        }
+        .product-desc {
+            color: #6b7c8d;
+            font-size: 13px;
+            line-height: 1.5;
+            min-height: 40px;
+            margin-bottom: 10px;
+        }
+        .price-tag {
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 700;
+            font-size: 1.2rem;
+            color: #0b6f56;
+        }
     </style>
 </head>
 <body>
@@ -275,6 +437,108 @@
         </div>
     </div>
 </div>
+
+<!-- ════════════════════ PRODUCTS + CART ════════════════════ -->
+<section class="py-5" id="products">
+    <div class="container py-2">
+        <?php if (!empty($alerts)): ?>
+            <div class="mb-4">
+                <?php foreach ($alerts as $alert): ?>
+                    <div class="alert alert-<?php echo htmlspecialchars($alert['type']); ?> mb-2" role="alert">
+                        <?php echo htmlspecialchars($alert['text']); ?>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+
+        <div class="cart-summary-card p-4 mb-4" id="cart-summary">
+            <div class="row align-items-center g-3">
+                <div class="col-md-7">
+                    <span class="section-label">Your cart</span>
+                    <h3 class="section-title mt-1 mb-2" style="font-size:1.6rem;">Keep shopping, your cart updates instantly</h3>
+                    <p class="mb-0 text-secondary" style="font-size:14px;">
+                        <?php if ($userId !== null): ?>
+                            Add products from this page and we will save them to your account cart.
+                        <?php else: ?>
+                            Login to start adding items to your cart.
+                        <?php endif; ?>
+                    </p>
+                </div>
+                <div class="col-md-5">
+                    <div class="d-flex justify-content-md-end gap-4 text-center text-md-start">
+                        <div>
+                            <div class="cart-summary-num"><?php echo $cartSummary['items']; ?></div>
+                            <div class="text-muted" style="font-size:13px;">Items in cart</div>
+                        </div>
+                        <div>
+                            <div class="cart-summary-num">RM <?php echo number_format($cartSummary['total'], 2); ?></div>
+                            <div class="text-muted" style="font-size:13px;">Cart total</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-between align-items-end mb-4 flex-wrap gap-2">
+            <div>
+                <span class="section-label">Products</span>
+                <h2 class="section-title mt-1 mb-0">Find your next favorite item</h2>
+            </div>
+            <?php if ($searchQuery !== ''): ?>
+                <span class="badge text-bg-light border">Search: <?php echo htmlspecialchars($searchQuery); ?></span>
+            <?php endif; ?>
+        </div>
+
+        <div class="row g-4">
+            <?php if (empty($products)): ?>
+                <div class="col-12">
+                    <div class="alert alert-warning mb-0">No products found<?php echo $searchQuery !== '' ? ' for "' . htmlspecialchars($searchQuery) . '"' : ''; ?>.</div>
+                </div>
+            <?php else: ?>
+                <?php foreach ($products as $product): ?>
+                    <div class="col-sm-6 col-lg-4">
+                        <div class="product-card">
+                            <div class="product-card-top">📦</div>
+                            <div class="card-body p-3 p-lg-4">
+                                <div class="product-name"><?php echo htmlspecialchars($product['ProductName']); ?></div>
+                                <div class="product-desc"><?php echo htmlspecialchars($product['Description'] ?? ''); ?></div>
+
+                                <div class="d-flex justify-content-between align-items-center mt-auto mb-3">
+                                    <span class="price-tag">RM <?php echo number_format((float)$product['Price'], 2); ?></span>
+                                    <?php if ((int)$product['StockQuantity'] > 0): ?>
+                                        <span class="badge text-bg-success">Stock: <?php echo (int)$product['StockQuantity']; ?></span>
+                                    <?php else: ?>
+                                        <span class="badge text-bg-danger">Out of stock</span>
+                                    <?php endif; ?>
+                                </div>
+
+                                <form method="post" action="index.php<?php echo $searchQuery !== '' ? '?q=' . urlencode($searchQuery) : ''; ?>" class="d-flex gap-2">
+                                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
+                                    <input type="hidden" name="action" value="add_to_cart">
+                                    <input type="hidden" name="product_id" value="<?php echo htmlspecialchars($product['ProductId']); ?>">
+
+                                    <input
+                                        type="number"
+                                        name="quantity"
+                                        class="form-control"
+                                        min="1"
+                                        max="<?php echo max(1, (int)$product['StockQuantity']); ?>"
+                                        value="1"
+                                        <?php echo (int)$product['StockQuantity'] <= 0 ? 'disabled' : ''; ?>
+                                    >
+
+                                    <button class="btn btn-primary-custom flex-shrink-0" type="submit" <?php echo (int)$product['StockQuantity'] <= 0 ? 'disabled' : ''; ?>>
+                                        Add to Cart
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            <?php endif; ?>
+        </div>
+    </div>
+</section>
 
 <!-- ════════════════════ FEATURES ════════════════════ -->
 <section class="py-5 mt-2" id="features">
