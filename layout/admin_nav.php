@@ -17,6 +17,7 @@
     </div>
     <div class="nav flex-column">
         <a href="admin_dashboard.php"><i class="bi bi-speedometer2 me-2"></i> Dashboard</a>
+        <a href="category.php"><i class="bi bi-list me-2"></i> Category Management</a>
         <a href="product_management.php"><i class="bi bi-box-seam me-2"></i> Product Management</a>
         <a href="member_management.php"><i class="bi bi-people me-2"></i> Member Management</a>
         <a href="order_management.php"><i class="bi bi-cart-check me-2"></i> Order Management</a>

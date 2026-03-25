@@ -61,6 +61,7 @@ function buildProductManagementUrl(array $params = []): string
 $errors = [];
 $successMessage = '';
 $editProduct = null;
+$categories = [];
 
 $search = trim($_GET['search'] ?? '');
 $perPage = isset($_GET['per_page']) ? (int)$_GET['per_page'] : 5;
@@ -101,6 +102,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $priceInput = trim($_POST['price'] ?? '');
             $stockInput = trim($_POST['stock_quantity'] ?? '');
             $selectedPrimaryImageId = trim($_POST['primary_image_id'] ?? '');
+            $categoryId = trim($_POST['category_id'] ?? '');
 
             if ($productName === '') {
                 $errors[] = 'Product name is required.';
@@ -112,6 +114,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($stockInput === '' || filter_var($stockInput, FILTER_VALIDATE_INT) === false || (int)$stockInput < 0) {
                 $errors[] = 'Stock quantity must be a whole number greater than or equal to 0.';
+            }
+
+            if ($categoryId !== '') {
+                $categoryCheckSql = "SELECT COUNT(*) FROM category WHERE CategoryId = :category_id";
+                $categoryCheckStmt = $pdo->prepare($categoryCheckSql);
+                $categoryCheckStmt->execute([':category_id' => $categoryId]);
+                if ((int)$categoryCheckStmt->fetchColumn() === 0) {
+                    $errors[] = 'Selected category is invalid.';
+                }
             }
 
             if (empty($errors)) {
@@ -133,7 +144,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     if ($action === 'add') {
                         $currentProductId = generateUuidV4();
-                        $insertSQL = "INSERT INTO Products (ProductId, ProductName, Description, Price, StockQuantity) VALUES (:product_id, :name, :description, :price, :stock)";
+                        $insertSQL = "INSERT INTO Products (ProductId, ProductName, Description, Price, StockQuantity, CategoryId) VALUES (:product_id, :name, :description, :price, :stock, :category_id)";
                         $insertStmt = $pdo->prepare($insertSQL);
                         $insertStmt->execute([
                             ':product_id' => $currentProductId,
@@ -141,6 +152,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             ':description' => $description,
                             ':price' => $price,
                             ':stock' => $stockQuantity,
+                            ':category_id' => $categoryId !== '' ? $categoryId : null,
                         ]);
                         $successMessage = 'Product added successfully.';
                     }
@@ -151,13 +163,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $errors[] = 'Missing product ID for update.';
                         } else {
                             $currentProductId = $productId;
-                            $updateSQL = "UPDATE Products SET ProductName = :name, Description = :description, Price = :price, StockQuantity = :stock WHERE ProductId = :product_id";
+                            $updateSQL = "UPDATE Products SET ProductName = :name, Description = :description, Price = :price, StockQuantity = :stock, CategoryId = :category_id WHERE ProductId = :product_id";
                             $updateStmt = $pdo->prepare($updateSQL);
                             $updateStmt->execute([
                                 ':name' => $productName,
                                 ':description' => $description,
                                 ':price' => $price,
                                 ':stock' => $stockQuantity,
+                                ':category_id' => $categoryId !== '' ? $categoryId : null,
                                 ':product_id' => $productId,
                             ]);
 
@@ -284,11 +297,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $editId = $_GET['edit'] ?? '';
 if ($editId !== '') {
-    $editSQL = "SELECT ProductId, ProductName, Description, Price, StockQuantity FROM Products WHERE ProductId = :product_id LIMIT 1";
+    $editSQL = "SELECT ProductId, ProductName, Description, Price, StockQuantity, CategoryId FROM Products WHERE ProductId = :product_id LIMIT 1";
     $editStmt = $pdo->prepare($editSQL);
     $editStmt->execute([':product_id' => $editId]);
     $editProduct = $editStmt->fetch(PDO::FETCH_ASSOC);
 }
+
+$categorySql = "SELECT CategoryId, CategoryName FROM category ORDER BY CategoryName ASC";
+$categoryStmt = $pdo->prepare($categorySql);
+$categoryStmt->execute();
+$categories = $categoryStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $whereClause = '';
 $searchParams = [];
@@ -314,9 +332,11 @@ if ($page > $totalPages) {
 }
 
 $offset = ($page - 1) * $perPage;
-$productSQL = "SELECT ProductId, ProductName, Description, Price, StockQuantity, CreateDate FROM Products"
+$productSQL = "SELECT p.ProductId, p.ProductName, p.Description, p.Price, p.StockQuantity, p.CreateDate, c.CategoryName
+    FROM Products p
+    LEFT JOIN category c ON c.CategoryId = p.CategoryId"
     . $whereClause
-    . " ORDER BY CreateDate DESC LIMIT :limit OFFSET :offset";
+    . " ORDER BY p.CreateDate DESC LIMIT :limit OFFSET :offset";
 $productStmt = $pdo->prepare($productSQL);
 foreach ($searchParams as $key => $value) {
     $productStmt->bindValue($key, $value, PDO::PARAM_STR);
@@ -424,15 +444,29 @@ if ($editProduct) {
                             <?php endif; ?>
 
                             <div class="row g-3">
+                                <div class="col-md-4">
+                                    <label class="form-label" for="category_id">Category</label>
+                                    <select class="form-select" id="category_id" name="category_id">
+                                        <option value="">Select category</option>
+                                        <?php foreach ($categories as $category): ?>
+                                            <option
+                                                value="<?php echo htmlspecialchars((string)$category['CategoryId']); ?>"
+                                                <?php echo (($editProduct['CategoryId'] ?? '') === $category['CategoryId']) ? 'selected' : ''; ?>
+                                            >
+                                                <?php echo htmlspecialchars((string)$category['CategoryName']); ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
                                 <div class="col-md-6">
                                     <label class="form-label" for="product_name">Product Name</label>
                                     <input class="form-control" type="text" id="product_name" name="product_name" required value="<?php echo htmlspecialchars($editProduct['ProductName'] ?? ''); ?>">
                                 </div>
-                                <div class="col-md-3">
+                                <div class="col-md-2">
                                     <label class="form-label" for="price">Price (RM)</label>
                                     <input class="form-control" type="number" id="price" name="price" min="0" step="0.01" required value="<?php echo htmlspecialchars($editProduct['Price'] ?? ''); ?>">
                                 </div>
-                                <div class="col-md-3">
+                                <div class="col-md-2">
                                     <label class="form-label" for="stock_quantity">Stock Quantity</label>
                                     <input class="form-control" type="number" id="stock_quantity" name="stock_quantity" min="0" step="1" required value="<?php echo htmlspecialchars($editProduct['StockQuantity'] ?? 0); ?>">
                                 </div>
@@ -487,6 +521,7 @@ if ($editProduct) {
                                 <tr>
                                     <th>No.</th>
                                     <th>Name</th>
+                                    <th>Category</th>
                                     <th>Description</th>
                                     <th>Price</th>
                                     <th>Stock</th>
@@ -497,7 +532,7 @@ if ($editProduct) {
                             <tbody>
                                 <?php if (empty($products)): ?>
                                     <tr>
-                                        <td colspan="7" class="text-center py-4 text-muted">No products found.</td>
+                                        <td colspan="8" class="text-center py-4 text-muted">No products found.</td>
                                     </tr>
                                 <?php else: ?>
                                     <?php $i = $offset + 1; ?>
@@ -505,6 +540,7 @@ if ($editProduct) {
                                         <tr>
                                             <td><?php echo $i++; ?></td>
                                             <td class="fw-semibold"><?php echo htmlspecialchars($product['ProductName']); ?></td>
+                                            <td><?php echo htmlspecialchars($product['CategoryName'] ?? '-'); ?></td>
                                             <td><?php echo htmlspecialchars($product['Description'] ?? ''); ?></td>
                                             <td>RM <?php echo number_format((float)$product['Price'], 2); ?></td>
                                             <td>
