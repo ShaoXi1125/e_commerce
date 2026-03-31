@@ -90,6 +90,22 @@ foreach ($productParams as $key => $value) {
 $productStmt->execute();
 $products = $productStmt->fetchAll(PDO::FETCH_ASSOC);
 
+$categories = [];
+try {
+    $categoryLimit = random_int(4, 5);
+    $categoryStmt = $pdo->prepare("SELECT c.CategoryId, c.CategoryName, c.CategoryIcon, COUNT(p.ProductId) AS ProductCount
+                                   FROM category c
+                                   LEFT JOIN Products p ON p.CategoryId = c.CategoryId
+                                   GROUP BY c.CategoryId, c.CategoryName, c.CategoryIcon
+                                   ORDER BY RAND()
+                                   LIMIT :limit");
+    $categoryStmt->bindValue(':limit', $categoryLimit, PDO::PARAM_INT);
+    $categoryStmt->execute();
+    $categories = $categoryStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {
+    $categories = [];
+}
+
 $cartSummary = ['items' => 0, 'total' => 0.00];
 if ($userId !== null) {
     $cartSummaryStmt = $pdo->prepare("SELECT COALESCE(SUM(c.Quantity), 0) AS total_items,
@@ -270,10 +286,16 @@ if ($userId !== null) {
             display: flex; align-items: flex-end;
         }
         .category-card:hover { transform: translateY(-4px); box-shadow: 0 14px 28px rgba(10,36,60,.12); }
+        .category-card .cc-overlay {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+        }
         .category-card .cc-inner {
             padding: 18px 20px;
             background: linear-gradient(to top, rgba(11,111,86,.5), transparent);
             width: 100%;
+            z-index: 2;
         }
         .category-card .cc-inner strong { color: #fff; font-size: 1rem; font-weight: 700; display: block; }
         .category-card .cc-inner span { color: rgba(255,255,255,.8); font-size: 13px; }
@@ -282,6 +304,7 @@ if ($userId !== null) {
             top: 16px; right: 20px;
             font-size: 2.4rem;
             opacity: .75;
+            z-index: 1;
         }
 
         /* ── CTA banner ── */
@@ -591,54 +614,51 @@ if ($userId !== null) {
             <a href="#" class="text-decoration-none text-success fw-semibold" style="font-size:14px;">View all <i class="fas fa-arrow-right ms-1"></i></a>
         </div>
         <div class="row g-3">
-            <div class="col-6 col-md-4 col-lg-2">
-                <div class="category-card" style="background:linear-gradient(135deg,#fef3e2,#fde8c8);">
-                    <span class="cc-emoji">👗</span>
-                    <div class="cc-inner" style="background:linear-gradient(to top,rgba(180,90,10,.5),transparent);">
-                        <strong>Fashion</strong><span>1,200+ items</span>
-                    </div>
+            <?php if (empty($categories)): ?>
+                <div class="col-12">
+                    <div class="alert alert-light border mb-0">No categories available yet.</div>
                 </div>
-            </div>
-            <div class="col-6 col-md-4 col-lg-2">
-                <div class="category-card" style="background:linear-gradient(135deg,#e8f0ff,#d5e4ff);">
-                    <span class="cc-emoji">💻</span>
-                    <div class="cc-inner" style="background:linear-gradient(to top,rgba(30,60,180,.5),transparent);">
-                        <strong>Electronics</strong><span>840+ items</span>
+            <?php else: ?>
+                <?php foreach ($categories as $category): ?>
+                    <?php
+                    $categoryId = htmlspecialchars($category['CategoryId']);
+                    $categoryName = trim((string)($category['CategoryName'] ?? 'Category'));
+                    $productCount = (int)($category['ProductCount'] ?? 0);
+                    $safeIconName = basename((string)($category['CategoryIcon'] ?? ''));
+                    $iconPath = $safeIconName !== '' ? 'asset/category_icons/' . $safeIconName : '';
+                    $iconUrl = ($iconPath !== '' && is_file(__DIR__ . '/' . $iconPath)) ? $iconPath : '';
+                    $bgThemes = [
+                        ['bg' => 'linear-gradient(135deg,#fef3e2,#fde8c8)', 'overlay' => 'linear-gradient(to top,rgba(180,90,10,.5),transparent)'],
+                        ['bg' => 'linear-gradient(135deg,#eaf4ff,#dce9ff)', 'overlay' => 'linear-gradient(to top,rgba(36,84,160,.5),transparent)'],
+                        ['bg' => 'linear-gradient(135deg,#e9f9f0,#d6f1e2)', 'overlay' => 'linear-gradient(to top,rgba(20,122,82,.5),transparent)'],
+                        ['bg' => 'linear-gradient(135deg,#fff1f0,#ffe0dc)', 'overlay' => 'linear-gradient(to top,rgba(166,58,43,.5),transparent)'],
+                        ['bg' => 'linear-gradient(135deg,#f6f0ff,#e9ddff)', 'overlay' => 'linear-gradient(to top,rgba(98,64,167,.5),transparent)'],
+                    ];
+                    $theme = $bgThemes[array_rand($bgThemes)];
+                    $itemsText = number_format($productCount) . '+ items';
+                    ?>
+                    <div class="col-6 col-md-4 col-lg-2">
+                        <a href="product.php?category=<?php echo urlencode($categoryId); ?>" class="category-card text-decoration-none" style="background:<?php echo htmlspecialchars($theme['bg']); ?>;">
+                            <div class="cc-overlay" style="background:<?php echo htmlspecialchars($theme['overlay']); ?>;"></div>
+                            <span class="cc-emoji" aria-hidden="true">
+                                <?php if ($iconUrl !== ''): ?>
+                                    <img
+                                        src="<?php echo htmlspecialchars($iconUrl); ?>"
+                                        alt=""
+                                        style="width:38px;height:38px;object-fit:cover;box-shadow:0 4px 10px rgba(0,0,0,.15);"
+                                    >
+                                <?php else: ?>
+                                    <i class="fas fa-tag"></i>
+                                <?php endif; ?>
+                            </span>
+                            <div class="cc-inner" style="background:<?php echo htmlspecialchars($theme['overlay']); ?>;">
+                                <strong><?php echo htmlspecialchars($categoryName); ?></strong>
+                                <span><?php echo htmlspecialchars($itemsText); ?></span>
+                            </div>
+                        </a>
                     </div>
-                </div>
-            </div>
-            <div class="col-6 col-md-4 col-lg-2">
-                <div class="category-card" style="background:linear-gradient(135deg,#fde8f0,#fcd0e0);">
-                    <span class="cc-emoji">💄</span>
-                    <div class="cc-inner" style="background:linear-gradient(to top,rgba(160,30,80,.5),transparent);">
-                        <strong>Beauty</strong><span>660+ items</span>
-                    </div>
-                </div>
-            </div>
-            <div class="col-6 col-md-4 col-lg-2">
-                <div class="category-card" style="background:linear-gradient(135deg,#e5f5e8,#caecce);">
-                    <span class="cc-emoji">🌿</span>
-                    <div class="cc-inner">
-                        <strong>Home & Garden</strong><span>980+ items</span>
-                    </div>
-                </div>
-            </div>
-            <div class="col-6 col-md-4 col-lg-2">
-                <div class="category-card" style="background:linear-gradient(135deg,#fff3e0,#ffe0b2);">
-                    <span class="cc-emoji">⚽</span>
-                    <div class="cc-inner" style="background:linear-gradient(to top,rgba(180,80,10,.5),transparent);">
-                        <strong>Sports</strong><span>520+ items</span>
-                    </div>
-                </div>
-            </div>
-            <div class="col-6 col-md-4 col-lg-2">
-                <div class="category-card" style="background:linear-gradient(135deg,#f3e5f5,#e1bee7);">
-                    <span class="cc-emoji">📚</span>
-                    <div class="cc-inner" style="background:linear-gradient(to top,rgba(100,30,140,.5),transparent);">
-                        <strong>Books</strong><span>340+ items</span>
-                    </div>
-                </div>
-            </div>
+                <?php endforeach; ?>
+            <?php endif; ?>
         </div>
     </div>
 </section>
@@ -683,30 +703,23 @@ if ($userId !== null) {
                 </ul>
             </div>
             <div class="col-6 col-md-2">
-                <div class="fw-semibold text-white mb-3" style="font-size:13px;letter-spacing:.04em;text-transform:uppercase;">Account</div>
+                <div class="fw-semibold text-white mb-3" style="font-size:13px;letter-spacing:.04em;text-transform:uppercase;">
+                    Account
+                </div>
                 <ul class="list-unstyled" style="font-size:13.5px;line-height:2;">
-                    <li><a href="member_login.php">Login</a></li>
-                    <li><a href="member_register.php">Register</a></li>
-                    <li><a href="userProfile.php">My Profile</a></li>
+                    <?php if (isset($_SESSION['user_id'])): ?>
+                        <li><a href="userProfile.php">My Profile</a></li>
+                        <li><a href="logout.php">Logout</a></li>
+                    <?php else: ?>
+                        <li><a href="member_login.php">Login</a></li>
+                        <li><a href="member_register.php">Register</a></li>
+                    <?php endif; ?>
                 </ul>
-            </div>
-            <div class="col-md-4">
-                <div class="fw-semibold text-white mb-3" style="font-size:13px;letter-spacing:.04em;text-transform:uppercase;">Stay Updated</div>
-                <p style="font-size:13.5px;">Subscribe for deals and new arrivals.</p>
-                <form class="d-flex gap-2" onsubmit="return false;">
-                    <input type="email" class="form-control form-control-sm" placeholder="you@example.com" style="background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.15);color:#fff;">
-                    <button class="btn btn-sm btn-primary-custom flex-shrink-0">Subscribe</button>
-                </form>
             </div>
         </div>
         <hr class="footer-divider">
         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2" style="font-size:12.5px;">
             <span>&copy; <?php echo date('Y'); ?> E-commerce. All rights reserved.</span>
-            <div class="d-flex gap-3">
-                <a href="#"><i class="fab fa-facebook-f"></i></a>
-                <a href="#"><i class="fab fa-instagram"></i></a>
-                <a href="#"><i class="fab fa-twitter"></i></a>
-            </div>
         </div>
     </div>
 </footer>

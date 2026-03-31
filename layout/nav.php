@@ -270,23 +270,18 @@ if(isset($_SESSION['user_id'])){
 
         <div class="collapse navbar-collapse" id="navbarContent">
             <div class="nav-search-shell my-3 my-lg-0">
-                <form class="d-flex" action="index.php" method="get" role="search">
+                <form class="d-flex" action="product.php" method="get" role="search">
                     <div class="nav-search-wrap flex-grow-1 me-2">
                         <i class="fa-solid fa-magnifying-glass nav-search-icon"></i>
                         <input
                             class="form-control nav-search-input"
                             type="search"
-                            name="q"
+                            name="productName"
                             placeholder="Search products"
                             aria-label="Search"
                             value="<?php echo htmlspecialchars($searchQuery, ENT_QUOTES, 'UTF-8'); ?>"
                         >
                     </div>
-                    <input
-                        type="hidden"
-                        name="from"
-                        value="nav"
-                    >
                     <button class="btn nav-search-btn" type="submit">Search</button>
                 </form>
             </div>
@@ -294,7 +289,7 @@ if(isset($_SESSION['user_id'])){
             <ul class="navbar-nav ms-lg-auto mb-2 mb-lg-0 align-items-lg-center">
                 <?php if(isset($_SESSION['user_id'])): ?>
                     <li class="nav-item">
-                        <a class="nav-link nav-cart-link" href="index.php#cart-summary" aria-label="View cart">
+                        <a class="nav-link nav-cart-link" href="cart.php" aria-label="View cart">
                             <i class="fa-solid fa-cart-shopping"></i>
                             <?php if ($cartItemCount > 0): ?>
                                 <span class="nav-cart-badge"><?php echo $cartItemCount > 99 ? '99+' : $cartItemCount; ?></span>

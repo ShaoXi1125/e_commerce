@@ -34,6 +34,85 @@ function buildCategoryUrl(array $params = []): string
 	return 'category.php' . ($query !== '' ? '?' . $query : '');
 }
 
+function ensureCategoryIconDirectory(): string
+{
+	$directory = dirname(__DIR__) . '/asset/category_icons';
+	if (!is_dir($directory)) {
+		mkdir($directory, 0775, true);
+	}
+
+	return $directory;
+}
+
+function uploadCategoryIcon(array $file, array &$errors): ?string
+{
+	if (($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+		return null;
+	}
+
+	if (($file['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
+		$errors[] = 'Failed to upload icon. Please try again.';
+		return null;
+	}
+
+	if (!is_uploaded_file($file['tmp_name'])) {
+		$errors[] = 'Invalid uploaded icon file.';
+		return null;
+	}
+
+	$finfo = new finfo(FILEINFO_MIME_TYPE);
+	$mimeType = $finfo->file($file['tmp_name']);
+	$allowedMimeToExt = [
+		'image/jpeg' => 'jpg',
+		'image/png' => 'png',
+		'image/webp' => 'webp',
+		'image/gif' => 'gif',
+	];
+
+	if (!isset($allowedMimeToExt[$mimeType])) {
+		$errors[] = 'Icon must be a JPG, PNG, WEBP, or GIF image.';
+		return null;
+	}
+
+	if (($file['size'] ?? 0) > 2 * 1024 * 1024) {
+		$errors[] = 'Icon size must be 2MB or less.';
+		return null;
+	}
+
+	$filename = generateUuidV4() . '.' . $allowedMimeToExt[$mimeType];
+	$targetPath = ensureCategoryIconDirectory() . '/' . $filename;
+
+	if (!move_uploaded_file($file['tmp_name'], $targetPath)) {
+		$errors[] = 'Unable to save the uploaded icon.';
+		return null;
+	}
+
+	return $filename;
+}
+
+function deleteCategoryIconFile(?string $iconName): void
+{
+	if ($iconName === null || $iconName === '') {
+		return;
+	}
+
+	$safeName = basename($iconName);
+	$path = dirname(__DIR__) . '/asset/category_icons/' . $safeName;
+	if (is_file($path)) {
+		unlink($path);
+	}
+}
+
+function categoryIconUrl(?string $iconName): ?string
+{
+	if ($iconName === null || $iconName === '') {
+		return null;
+	}
+
+	$safeName = basename($iconName);
+	return '../asset/category_icons/' . rawurlencode($safeName);
+}
+
 $errors = [];
 $successMessage = '';
 $editCategory = null;
@@ -68,6 +147,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 		if ($action === 'add' || $action === 'update') {
 			$categoryName = trim($_POST['category_name'] ?? '');
+			$removeIcon = isset($_POST['remove_icon']) && $_POST['remove_icon'] === '1';
+			$uploadedIcon = uploadCategoryIcon($_FILES['category_icon'] ?? [], $errors);
 
 			if ($categoryName === '') {
 				$errors[] = 'Category name is required.';
@@ -84,11 +165,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 					if ((int)$duplicateStmt->fetchColumn() > 0) {
 						$errors[] = 'Category name already exists.';
 					} else {
-						$insertSql = 'INSERT INTO category (CategoryId, CategoryName, CreateDate) VALUES (:category_id, :category_name, NOW())';
+						$insertSql = 'INSERT INTO category (CategoryId, CategoryName, CategoryIcon, CreateDate) VALUES (:category_id, :category_name, :category_icon, NOW())';
 						$insertStmt = $pdo->prepare($insertSql);
 						$insertStmt->execute([
 							':category_id' => generateUuidV4(),
 							':category_name' => $categoryName,
+							':category_icon' => $uploadedIcon,
 						]);
 						$successMessage = 'Category added successfully.';
 					}
@@ -99,6 +181,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 					if ($categoryId === '') {
 						$errors[] = 'Missing category ID for update.';
 					} else {
+						$currentSql = 'SELECT CategoryIcon FROM category WHERE CategoryId = :category_id LIMIT 1';
+						$currentStmt = $pdo->prepare($currentSql);
+						$currentStmt->execute([':category_id' => $categoryId]);
+						$currentCategory = $currentStmt->fetch(PDO::FETCH_ASSOC);
+						if (!$currentCategory) {
+							$errors[] = 'Category not found.';
+						}
+
+						$finalIcon = $currentCategory['CategoryIcon'] ?? null;
+						if ($removeIcon) {
+							deleteCategoryIconFile((string)$finalIcon);
+							$finalIcon = null;
+						}
+						if ($uploadedIcon !== null) {
+							deleteCategoryIconFile((string)$finalIcon);
+							$finalIcon = $uploadedIcon;
+						}
+
+						if (!empty($errors)) {
+							goto skip_update;
+						}
+
 						$duplicateSql = 'SELECT COUNT(*) FROM category WHERE LOWER(CategoryName) = LOWER(:category_name) AND CategoryId <> :category_id';
 						$duplicateStmt = $pdo->prepare($duplicateSql);
 						$duplicateStmt->execute([
@@ -109,14 +213,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 						if ((int)$duplicateStmt->fetchColumn() > 0) {
 							$errors[] = 'Category name already exists.';
 						} else {
-							$updateSql = 'UPDATE category SET CategoryName = :category_name WHERE CategoryId = :category_id';
+							$updateSql = 'UPDATE category SET CategoryName = :category_name, CategoryIcon = :category_icon WHERE CategoryId = :category_id';
 							$updateStmt = $pdo->prepare($updateSql);
 							$updateStmt->execute([
 								':category_name' => $categoryName,
+								':category_icon' => $finalIcon,
 								':category_id' => $categoryId,
 							]);
 							$successMessage = 'Category updated successfully.';
 						}
+
+						skip_update:
 					}
 				}
 			}
@@ -128,9 +235,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 				$errors[] = 'Missing category ID for delete.';
 			} else {
 				try {
+					$iconSql = 'SELECT CategoryIcon FROM category WHERE CategoryId = :category_id LIMIT 1';
+					$iconStmt = $pdo->prepare($iconSql);
+					$iconStmt->execute([':category_id' => $categoryId]);
+					$iconName = $iconStmt->fetchColumn();
+
 					$deleteSql = 'DELETE FROM category WHERE CategoryId = :category_id';
 					$deleteStmt = $pdo->prepare($deleteSql);
 					$deleteStmt->execute([':category_id' => $categoryId]);
+					deleteCategoryIconFile(is_string($iconName) ? $iconName : null);
 					$successMessage = 'Category deleted successfully.';
 				} catch (Exception $e) {
 					$errors[] = 'Unable to delete category: ' . $e->getMessage();
@@ -142,7 +255,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $editId = $_GET['edit'] ?? '';
 if ($editId !== '') {
-	$editSql = 'SELECT CategoryId, CategoryName, CreateDate FROM category WHERE CategoryId = :category_id LIMIT 1';
+	$editSql = 'SELECT CategoryId, CategoryName, CategoryIcon, CreateDate FROM category WHERE CategoryId = :category_id LIMIT 1';
 	$editStmt = $pdo->prepare($editSql);
 	$editStmt->execute([':category_id' => $editId]);
 	$editCategory = $editStmt->fetch(PDO::FETCH_ASSOC);
@@ -171,11 +284,11 @@ if ($page > $totalPages) {
 }
 
 $offset = ($page - 1) * $perPage;
-$categorySql = 'SELECT c.CategoryId, c.CategoryName, c.CreateDate, COUNT(p.ProductId) AS ProductCount
+$categorySql = 'SELECT c.CategoryId, c.CategoryName, c.CategoryIcon, c.CreateDate, COUNT(p.ProductId) AS ProductCount
 	FROM category c
 	LEFT JOIN Products p ON p.CategoryId = c.CategoryId'
 	. $whereClause
-	. ' GROUP BY c.CategoryId, c.CategoryName, c.CreateDate
+	. ' GROUP BY c.CategoryId, c.CategoryName, c.CategoryIcon, c.CreateDate
 	ORDER BY c.CreateDate DESC
 	LIMIT :limit OFFSET :offset';
 $categoryStmt = $pdo->prepare($categorySql);
@@ -224,7 +337,7 @@ $categories = $categoryStmt->fetchAll(PDO::FETCH_ASSOC);
 						<h5 class="mb-0"><?php echo $editCategory ? 'Edit Category' : 'Add New Category'; ?></h5>
 					</div>
 					<div class="card-body">
-						<form method="post" action="<?php echo htmlspecialchars(buildCategoryUrl(array_merge($stateParams, $editCategory ? ['edit' => $editCategory['CategoryId']] : []))); ?>">
+						<form method="post" enctype="multipart/form-data" action="<?php echo htmlspecialchars(buildCategoryUrl(array_merge($stateParams, $editCategory ? ['edit' => $editCategory['CategoryId']] : []))); ?>">
 							<input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
 							<input type="hidden" name="action" value="<?php echo $editCategory ? 'update' : 'add'; ?>">
 							<?php if ($editCategory): ?>
@@ -232,7 +345,7 @@ $categories = $categoryStmt->fetchAll(PDO::FETCH_ASSOC);
 							<?php endif; ?>
 
 							<div class="row g-3">
-								<div class="col-md-8">
+								<div class="col-md-6">
 									<label class="form-label" for="category_name">Category Name</label>
 									<input
 										class="form-control"
@@ -243,6 +356,27 @@ $categories = $categoryStmt->fetchAll(PDO::FETCH_ASSOC);
 										required
 										value="<?php echo htmlspecialchars($editCategory['CategoryName'] ?? ''); ?>"
 									>
+								</div>
+								<div class="col-md-6">
+									<label class="form-label" for="category_icon">Category Icon</label>
+									<input
+										class="form-control"
+										type="file"
+										id="category_icon"
+										name="category_icon"
+										accept="image/jpeg,image/png,image/webp,image/gif"
+									>
+									<small class="text-muted">Accepted: JPG, PNG, WEBP, GIF (max 2MB)</small>
+
+									<?php if (!empty($editCategory['CategoryIcon'])): ?>
+										<div class="mt-2 d-flex align-items-center gap-2">
+											<img src="<?php echo htmlspecialchars((string)categoryIconUrl((string)$editCategory['CategoryIcon'])); ?>" alt="Current icon" style="width:40px;height:40px;object-fit:cover;border-radius:8px;border:1px solid #ddd;">
+											<div class="form-check">
+												<input class="form-check-input" type="checkbox" value="1" id="remove_icon" name="remove_icon">
+												<label class="form-check-label" for="remove_icon">Remove current icon</label>
+											</div>
+										</div>
+									<?php endif; ?>
 								</div>
 								<?php if ($editCategory): ?>
 									<div class="col-md-4">
@@ -301,6 +435,7 @@ $categories = $categoryStmt->fetchAll(PDO::FETCH_ASSOC);
 							<thead>
 								<tr>
 									<th>No.</th>
+									<th>Icon</th>
 									<th>Name</th>
 									<th>Products</th>
 									<th>Created</th>
@@ -310,13 +445,20 @@ $categories = $categoryStmt->fetchAll(PDO::FETCH_ASSOC);
 							<tbody>
 								<?php if (empty($categories)): ?>
 									<tr>
-										<td colspan="5" class="text-center py-4 text-muted">No categories found.</td>
+										<td colspan="6" class="text-center py-4 text-muted">No categories found.</td>
 									</tr>
 								<?php else: ?>
 									<?php $i = $offset + 1; ?>
 									<?php foreach ($categories as $category): ?>
 										<tr>
 											<td><?php echo $i++; ?></td>
+											<td>
+												<?php if (!empty($category['CategoryIcon'])): ?>
+													<img src="<?php echo htmlspecialchars((string)categoryIconUrl((string)$category['CategoryIcon'])); ?>" alt="<?php echo htmlspecialchars((string)$category['CategoryName']); ?> icon" style="width:34px;height:34px;object-fit:cover;border-radius:8px;border:1px solid #ddd;">
+												<?php else: ?>
+													<span class="text-muted">-</span>
+												<?php endif; ?>
+											</td>
 											<td class="fw-semibold"><?php echo htmlspecialchars((string)$category['CategoryName']); ?></td>
 											<td><?php echo htmlspecialchars((string)$category['ProductCount']); ?></td>
 											<td><?php echo htmlspecialchars((string)($category['CreateDate'] ?? '')); ?></td>

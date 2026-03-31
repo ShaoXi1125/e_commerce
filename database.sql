@@ -60,6 +60,7 @@ CREATE TABLE Products (
 CREATE TABLE `category` (
     CategoryId CHAR(36) NOT NULL,
     CategoryName VARCHAR(100),
+    CategoryIcon VARCHAR(255) NULL,
     CreateDate DATETIME,
     PRIMARY KEY (CategoryId)
 );
