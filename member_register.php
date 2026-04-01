@@ -2,6 +2,14 @@
 
 include_once 'config/config.php';
 
+function isStrongPassword($password){
+    return strlen($password) >= 8
+        && preg_match('/[a-z]/', $password)
+        && preg_match('/[A-Z]/', $password)
+        && preg_match('/\d/', $password)
+        && preg_match('/[^A-Za-z0-9]/', $password);
+}
+
 if($_SERVER['REQUEST_METHOD'] === 'POST'){
     $email = $_POST['email'];
     $password = $_POST['pass'];
@@ -35,14 +43,20 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
     }
 
     try{
-        $pdo->beginTransaction();
-
-        $userId = vsprintf('%s%s-%s-%s-%s-%s%s%s',str_split(bin2hex(random_bytes(16)),4));
-
         if($password !== $confirmPassword){
             echo json_encode(["error" => "Passwords do not match."]);
             exit();
         }
+
+        if(!isStrongPassword($password)){
+            echo json_encode(["error" => "Password must be at least 8 characters and include uppercase, lowercase, number, and symbol."]);
+            exit();
+        }
+
+        $pdo->beginTransaction();
+
+        $userId = vsprintf('%s%s-%s-%s-%s-%s%s%s',str_split(bin2hex(random_bytes(16)),4));
+
         $passwordHash = password_hash($confirmPassword,PASSWORD_DEFAULT);
 
         $roleStmt = $pdo->prepare("SELECT RoleId FROM Roles WHERE `RoleName` =  'Member' LIMIT 1");
@@ -176,6 +190,24 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
             background: #fff;
             box-shadow: 0 0 0 3px rgba(15,143,111,.1);
             outline: none;
+        }
+
+        .form-control.invalid-field,
+        .form-control.invalid-field:focus {
+            border-color: #d32f2f;
+            background: #fffafa;
+            box-shadow: 0 0 0 3px rgba(211,47,47,.12);
+        }
+
+        .field-error {
+            color: #d32f2f;
+            font-size: 12px;
+            margin-top: 6px;
+            display: none;
+        }
+
+        .field-error.show {
+            display: block;
         }
 
         .form-control::placeholder {
@@ -364,9 +396,10 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
                 <div class="form-row full">
                     <div class="form-group">
                         <label class="form-label">Password</label>
-                        <input type="password" class="form-control" name="pass" id="pass" placeholder="Create a strong password" required>
+                        <input type="password" class="form-control" name="pass" id="pass" placeholder="Create a strong password" pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}" title="At least 8 characters, including uppercase, lowercase, number, and symbol." required>
+                        <div id="passwordError" class="field-error">Use at least 8 characters with uppercase, lowercase, number, and symbol.</div>
                         <div class="password-instructions">
-                            <i class="fas fa-shield-alt"></i> At least 8 characters with mix of letters & numbers
+                            <i class="fas fa-shield-alt"></i> At least 8 characters with uppercase, lowercase, number, and symbol
                         </div>
                     </div>
                 </div>
@@ -443,6 +476,33 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
         event.preventDefault();
         const form = document.getElementById('registerForm');
         const formData = new FormData(form);
+        const passwordInput = document.getElementById('pass');
+        const password = passwordInput.value;
+        const confirmPassword = document.getElementById('confirm_pass').value;
+        const alertContainer = document.getElementById('alertContainer');
+        const passwordError = document.getElementById('passwordError');
+
+        const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
+        if (!passwordRegex.test(password)) {
+            passwordInput.classList.add('invalid-field');
+            passwordError.classList.add('show');
+            alertContainer.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <i class="fas fa-exclamation-circle me-2"></i>Password must be at least 8 characters and include uppercase, lowercase, number, and symbol.
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>`;
+            return false;
+        }
+
+        passwordInput.classList.remove('invalid-field');
+        passwordError.classList.remove('show');
+
+        if (password !== confirmPassword) {
+            alertContainer.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <i class="fas fa-exclamation-circle me-2"></i>Passwords do not match.
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>`;
+            return false;
+        }
 
         fetch('member_register.php', {
             method: 'POST',
@@ -450,8 +510,6 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
         })
         .then(response => response.json())
         .then(data => {
-            const alertContainer = document.getElementById('alertContainer');
-            
             if (data.error) {
                 alertContainer.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">
                     <i class="fas fa-exclamation-circle me-2"></i>${data.error}
@@ -479,6 +537,20 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
         
         return false;
     }
+
+    // Live password format hint
+    document.getElementById('pass').addEventListener('input', function() {
+        const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
+        const passwordError = document.getElementById('passwordError');
+
+        if (this.value.length === 0 || passwordRegex.test(this.value)) {
+            this.classList.remove('invalid-field');
+            passwordError.classList.remove('show');
+        } else {
+            this.classList.add('invalid-field');
+            passwordError.classList.add('show');
+        }
+    });
 </script>
 </body>
 </html>
