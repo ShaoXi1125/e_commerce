@@ -72,17 +72,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$productSQL = "SELECT ProductId, ProductName, Description, Price, StockQuantity FROM Products";
+$productSQL = "SELECT p.ProductId,
+              p.ProductName,
+              p.Description,
+              p.Price,
+              p.StockQuantity,
+              (SELECT pi.ImageUrl
+               FROM productimages pi
+               WHERE pi.ProductId = p.ProductId
+               ORDER BY pi.IsPrimary DESC, pi.ProductId ASC
+               LIMIT 1) AS MainImage
+           FROM Products p";
 $productParams = [];
 
 if ($searchQuery !== '') {
-    $productSQL .= " WHERE ProductName LIKE :q_name OR Description LIKE :q_desc";
+    $productSQL .= " WHERE p.ProductName LIKE :q_name OR p.Description LIKE :q_desc";
     $keyword = '%' . $searchQuery . '%';
     $productParams[':q_name'] = $keyword;
     $productParams[':q_desc'] = $keyword;
 }
 
-$productSQL .= " ORDER BY CreateDate DESC LIMIT 18";
+$productSQL .= " ORDER BY RAND() LIMIT 18";
 $productStmt = $pdo->prepare($productSQL);
 foreach ($productParams as $key => $value) {
     $productStmt->bindValue($key, $value, PDO::PARAM_STR);
@@ -385,6 +395,15 @@ if ($userId !== null) {
             align-items: center;
             justify-content: center;
             font-size: 2.2rem;
+            overflow: hidden;
+        }
+        .product-card-image {
+            width: 100%;
+            height: 100%;
+            min-height: 120px;
+            max-height: 180px;
+            object-fit: cover;
+            display: block;
         }
         .product-card .card-body {
             display: flex;
@@ -521,7 +540,13 @@ if ($userId !== null) {
                 <?php foreach ($products as $product): ?>
                     <div class="col-sm-6 col-lg-4">
                         <div class="product-card">
-                            <div class="product-card-top">📦</div>
+                            <div class="product-card-top">
+                                <img
+                                    src="<?php echo htmlspecialchars($product['MainImage'] ?: 'asset/image/no-image.jpg'); ?>"
+                                    alt="<?php echo htmlspecialchars($product['ProductName']); ?>"
+                                    class="product-card-image"
+                                >
+                            </div>
                             <div class="card-body p-3 p-lg-4">
                                 <div class="product-name"><?php echo htmlspecialchars($product['ProductName']); ?></div>
                                 <div class="product-desc"><?php echo htmlspecialchars($product['Description'] ?? ''); ?></div>

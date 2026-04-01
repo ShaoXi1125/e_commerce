@@ -2,8 +2,33 @@
 
 include_once 'config/config.php';
 
+function sanitizeRedirectPath(?string $path): string
+{
+    if ($path === null) {
+        return '';
+    }
+
+    $trimmed = trim($path);
+    if ($trimmed === '') {
+        return '';
+    }
+
+    // Only allow internal relative paths and block protocol-relative or absolute URLs.
+    if (preg_match('/^(?:[a-z][a-z0-9+\-.]*:|\/\/)/i', $trimmed)) {
+        return '';
+    }
+
+    if (str_contains($trimmed, "\n") || str_contains($trimmed, "\r")) {
+        return '';
+    }
+
+    return ltrim($trimmed, '/');
+}
+
+$returnTo = sanitizeRedirectPath($_GET['return'] ?? $_POST['return_to'] ?? '');
+
 if (isset($_SESSION['user_id'])) {
-    header('Location: index.php');
+    header('Location: ' . ($returnTo !== '' ? $returnTo : 'index.php'));
     exit();
 }
 
@@ -44,7 +69,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['user_id'] = $user['UserId'];
             $_SESSION['role'] = $user['RoleName'];
 
-            sendJsonResponse(200, 'Login successful. Redirecting...', ['redirect' => 'index.php']);
+            $redirectTarget = $returnTo !== '' ? $returnTo : 'index.php';
+            sendJsonResponse(200, 'Login successful. Redirecting...', ['redirect' => $redirectTarget]);
         } else {
             sendJsonResponse(401, 'Invalid email or password.');
         }
@@ -304,7 +330,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <h2>Welcome back</h2>
             <p class="sub">Log in to continue your shopping journey.</p>
 
-            <form id="loginForm" action="member_login.php" method="post" novalidate>
+            <form id="loginForm" action="member_login.php<?= $returnTo !== '' ? '?return=' . urlencode($returnTo) : '' ?>" method="post" novalidate>
+                <input type="hidden" name="return_to" value="<?= htmlspecialchars($returnTo) ?>">
                 <div class="field">
                     <label for="email">Email</label>
                     <input type="email" id="email" name="email" autocomplete="email" required>

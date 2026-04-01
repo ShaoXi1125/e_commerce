@@ -2,7 +2,7 @@
 
 require_once __DIR__ . '/../config/config.php';
 
-$searchQuery = isset($_GET['q']) ? trim((string) $_GET['q']) : '';
+$searchQuery = trim((string)($_GET['productName'] ?? $_GET['search'] ?? $_GET['q'] ?? ''));
 $cartItemCount = 0;
 
 if(isset($_SESSION['user_id'])){
