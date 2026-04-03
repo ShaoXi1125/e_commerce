@@ -311,6 +311,21 @@ $grandTotal = $cartTotal + $shippingFee;
                 </div>
             </div>
         </section>
+        <?php if (!empty($_SESSION['checkout_success'])): ?>
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                <?= htmlspecialchars((string)$_SESSION['checkout_success']) ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+            <?php unset($_SESSION['checkout_success']); ?>
+        <?php endif; ?>
+
+        <?php if (!empty($_SESSION['checkout_error'])): ?>
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <?= htmlspecialchars((string)$_SESSION['checkout_error']) ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+            <?php unset($_SESSION['checkout_error']); ?>
+        <?php endif; ?>
 
         <?php if (!empty($alerts)): ?>
             <div class="mb-4">
@@ -415,7 +430,10 @@ $grandTotal = $cartTotal + $shippingFee;
                         <span>RM <?= number_format($grandTotal, 2) ?></span>
                     </div>
 
-                    <button class="btn-checkout" <?= empty($cartItems) ? 'disabled' : '' ?>>Proceed to Checkout</button>
+                    <form method="POST" action="process_checkout.php">
+                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
+                        <button type="submit" class="btn-checkout" <?= empty($cartItems) ? 'disabled' : '' ?>>Proceed to Checkout</button>
+                    </form>
 
                     <?php if (!empty($cartItems)): ?>
                         <form method="post" onsubmit="return confirm('Clear all items from your cart?');">

@@ -303,6 +303,7 @@ if(isset($_SESSION['user_id'])){
                         </a>
                         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
                             <li><a class="dropdown-item" href="userProfile.php"><i class="fa-regular fa-user me-2"></i>Profile</a></li>
+                            <li><a class="dropdown-item" href="view_order.php"><i class="fa-solid fa-box-archive me-2"></i>My Orders</a></li>
                             <li><hr class="dropdown-divider"></li>
                             <li><a class="dropdown-item" href="logout.php"><i class="fa-solid fa-arrow-right-from-bracket me-2"></i>Logout</a></li>
                         </ul>
